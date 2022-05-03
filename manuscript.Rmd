@@ -8,8 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 
 runcode <- 1  # this flag chooses whether to run the underlying analysis code (1), or just load in the figures from the last time this was run (0)
-processraw <- 0  # this flag determines whether the raw data are downloaded from OSF and processed - this will require ~30GB of hard drive space and take several hours
-
+processraw <- 1  # this flag determines whether the raw data are downloaded from OSF and processed - this will require ~30GB of hard drive space and take several hours
 
 # reasonably compact code to check which packages are installed, install the missing ones, and activate all
 packagelist <- c('knitr','remotes','tictoc') # list of CRAN packages
@@ -64,6 +63,10 @@ duration <- 14
 
 if (processraw==1){
   
+osfnode <- 'y4n5k'    # this is where the pilot data are stored
+osfproject <- osf_retrieve_node(osfnode)
+EEGfiles <- osf_ls_files(osfproject,n_max=300)
+
 # datadir <- '/Volumes/Seagate/EEG data/UG2014/tar/'
 # tempdir <- '/Volumes/Seagate/EEG data/UG2014/tar/temp/'
 datadir <- 'temp/raw/'
@@ -78,6 +81,19 @@ for (s in 1:101) {
     subcounter <- subcounter + 1  
   if (!file.exists(paste0('temp/VilidaiteProcessed/V',subcounter,'processed.RData'))){
   print(s)
+    
+    if (s < 10){tarname <- paste0('S0', s, '.tar')}
+    if (s > 9){tarname <- paste0('S', s, '.tar')}
+    
+    if (!file.exists(paste0(datadir,tarname))){
+      fid <- which(EEGfiles$name==tarname)
+      osf_download(EEGfiles[fid,],datadir,progress=TRUE)
+    }
+    
+    condcounter <- (1:20) * 0
+    allsamples <- array(0, dim = c(10,20,64,duration*samplerate))
+
+    untar(paste0(datadir,tarname),exdir=tempdir)
 
     condcounter <- (1:20) * 0
     allsamples <- array(0, dim = c(10,20,64,duration*samplerate))
@@ -95,6 +111,7 @@ for (s in 1:101) {
       # epoch the data, Fourier transform and store
       triggertimes <- (1:40) * 0
       counter <- 0
+      for (n in 1000:nrow(EEGdata)) {    # ignore triggers starting in the first 1000ms that generate an error
       for (n in 1:nrow(EEGdata)) {
         if (EEGdata$Trigger[n] %in% legaltriggers) {
           counter <- counter + 1
@@ -147,6 +164,70 @@ meanwaveforms <- array(0,dim=c(14,64,14000))
 
 
 if (runcode==1){
+#   d <- dir('temp/VilidaiteProcessed/')
+#   
+#   allwaves <- array(0,dim=c(length(d),14,64,14000))
+#   for (s in 1:length(d)){
+#     load(paste0('temp/VilidaiteProcessed/',d[s]))
+#     allwaves[s,,,] <- meanwaveforms
+#   }
+#   
+#   meanwaveforms <- array(0,dim=c(14,64,14000))
+#   alltarget <- matrix(0,nrow=14,ncol=64)
+#   allmask <- matrix(0,nrow=14,ncol=64)
+#     for (cond in 1:14){
+#       for (ch in 1:64){
+#         temp <- allwaves[,cond,ch,]
+#         allspec <- matrix(0,nrow=length(d),ncol=10000)
+#         for (subj in 1:length(d)){
+#           allspec[subj,] <- fft(temp[subj,2001:12000])/10000
+#         }
+#         targetresps <- allspec[,tindex]
+#         maskresps <- allspec[,mindex]
+#       if (sum(abs(targetresps))>0){  
+#       tempxy <- data.frame(Re(targetresps),Im(targetresps))
+#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+#       i1 <- (D<3)
+#       tempxy <- data.frame(Re(maskresps),Im(maskresps))
+#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+#       i2 <- (D<3)
+#       i <- which((i1*i2)>0)
+#         meanwaveforms[cond,ch,] <- colMeans(temp[i,])
+#       }
+#         spec <- fft(meanwaveforms[cond,ch,2001:12000])/10000
+#         alltarget[cond,ch] <- spec[tindex]
+#         allmask[cond,ch] <- spec[mindex]
+#       }
+#     }
+#   
+# }
+# 
+# targetchannels <- match(targetelectrodes, electrodes) - 2
+# 
+# elecave <- colMeans(meanwaveforms[6,targetchannels,])
+# binwidth <- 1000
+# f1 <- 7
+# tindex <- 1 + f1*(binwidth/1000)
+# fspec <- elecave*0
+# for (t in 1:(length(elecave)-binwidth)){
+#   temp <- elecave[t:(t+binwidth-1)]
+#   spec <- fft(temp)/binwidth
+#   fspec[t] <- abs(spec[tindex])
+# }
+# elecave <- colMeans(meanwaveforms[13,targetchannels,])
+# binwidth <- 1000
+# f1 <- 7
+# tindex <- 1 + f1*(binwidth/1000)
+# fspec2 <- elecave*0
+# for (t in 1:(length(elecave)-binwidth)){
+#   temp <- elecave[t:(t+binwidth-1)]
+#   spec <- fft(temp)/binwidth
+#   fspec2[t] <- abs(spec[tindex])
+# }
+# 
+# times <- -499:13500
+# plot(times,fspec,type='l',col='red')
+# lines(times,fspec2,col='green')
   d <- dir('temp/VilidaiteProcessed/')
   
   allwaves <- array(0,dim=c(length(d),14,64,14000))
@@ -221,6 +302,10 @@ lines(times,fspec2,col='green')
 # target electrodes, full timecourse at 5 & 7Hz, conditions 6, 8, 13
 # allwaves dimensions: 67 x 14 x 64 x 14000
 
+
+# temp <- allwaves[,6,,2001:12000]
+# meantemp <- apply(allwaves,2:3,mean)
+
 temp <- allwaves[,6,,2001:12000]
 meantemp <- apply(allwaves,2:3,mean)
 
@@ -230,6 +315,7 @@ f2 <- 5
     tindex <- 1 + f1*(binwidth/1000)
     mindex <- 1 + f2*(binwidth/1000)
 condlist <- c(6,8,13)
+
 targetchannels <- match(targetelectrodes, electrodes) - 2
 d <- dir('temp/VilidaiteProcessed/')
 all7Hz <- array(0,dim=c(length(d),14,64))
@@ -241,6 +327,8 @@ timecourse5Hz <- array(0,dim=c(length(d),3,14000))
     tic()
     load(paste0('temp/VilidaiteProcessed/',d[s]))
     
+    targetchannels <- match(targetelectrodes, electrodes) - 2
+
     for (cond in 1:14){
       for (ch in 1:64){
         temp <- meanwaveforms[cond,ch,2001:12000]
@@ -298,6 +386,7 @@ plot(-499:13500,meantime7Hz[1,],type='l',col='red')
 lines(-499:13500,meantime7Hz[2,],col='black')
 lines(-499:13500,meantime7Hz[3,],col='green')
 
+}
 
 ```
 
