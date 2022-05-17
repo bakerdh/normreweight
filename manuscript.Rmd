@@ -1,6 +1,6 @@
 ---
-title: "Normalization Reweighting"
-author: "Daniel H. Baker"
+title: "The Dynamics of Normalization Reweighting"
+author: "Daniel H. Baker, Daniela Marinova, Richard Aveyard, Lydia Hargreaves, Alice Renton, Ruby Castellani, Phoebe Hall, Miriam Harmens, Georgia Holroyd, Dorian Manning, Beth Nicholson, Emily Williams, Hannah M. Hobson & Alex R. Wade"
 date: "`r Sys.Date()`"
 output: html_document
 ---
@@ -8,7 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 
 runcode <- 1  # this flag chooses whether to run the underlying analysis code (1), or just load in the figures from the last time this was run (0)
-processraw <- 1  # this flag determines whether the raw data are downloaded from OSF and processed - this will require ~30GB of hard drive space and take several hours
+processraw <- 0  # this flag determines whether the raw data are downloaded from OSF and processed - this will require ~30GB of hard drive space and take several hours
 
 # reasonably compact code to check which packages are installed, install the missing ones, and activate all
 packagelist <- c('knitr','remotes','tictoc') # list of CRAN packages
@@ -39,18 +39,31 @@ targetelectrodes <- c('Oz','POz','O1','O2')
 
 ## Introduction
 
+Suppressive interactions between neurons are ubiquitous in the nervous system, and normalization (or gain control) processes have been proposed as a canonical neuronal computation (Carandini & Heeger). Yet the strength of suppression was for decades treated as fixed, largely due to the observation that adapting to one stimulus does not decrease its suppressive potency (refs). This orthodoxy was recently challenged by a series of innovative studies showing that normalization can be 'reweighted' by recent history (Westrick, Aschner, Yiltiz). Specifically, when pairs of stimuli are repeatedly presented together, they come to suppress each other more strongly. This suggests that, far from being fixed, normalization is a dynamic process that is continuously updated by the sensory environment. Here, our objectives were to determine if the timecourse of these changes can be measured non-invasively from the human brain, assess if they occur across suppressive pathways, and determine whether they differ across the population as a function of self-reported sensory experience, and autistic traits.
+
+Atypical sensory experience is widely reported by individuals on the autism spectrum, yet the causal mechanisms remain unclear. Typical issues include hypersensitivity to intense stimuli such as loud sounds, bright lights and strong odours or flavours. Yet fundamental measures of sensitivity such as visual acuity, contrast sensitivity, and audiometric performance (Rosenhall et al. 1999) are not consistently different from neurotypical controls. 
+
+Simmons
+
+Dickinson 2014 oblique effect
+
+Vilidaite summary
+
+Theoretical accounts of sensory differences in autism have long proposed that the balance of inhibition and excitation may be disrupted, and there are isolated results that seem consistent with this. For example ... However many other studies have failed to find group differences using tasks that are at least superficially dependent on inhibition, such as...
+
+Priors
+
+Suppression itself is not a single process. Multiple suppressive pathways have been identified in the visual system, including between stimuli differing in orientation, eye-of-origin and spatial position. At present there is evidence of normalization reweighting between stimuli of orthogonal orientations (Aschner, 2018), and adjacent spatial positions (Yiltiz, 2020). We also wondered if interocular suppression might be subject to reweighting, and if there are differences in the dynamics across pathways. This is possible, given that suppression within and between the eyes has different spatiotemporal tuning (Meese & Baker, 2009), and dichoptic masking can be reduced by adapting to the mask (Baker, 2007 and other studies), unlike within-eye masking. Dynamic fluctuations in interocular suppression are a feature of binocular rivalry (Wilson, 2003), for which differences in autism have also been reported (Robertson). 
+
+We hypothesised that normalization reweighting might differ as a function of autistic traits. The relative novelty of the reweighting framework could explain why any differences have not previously been detected, and why the literature on inhibition in autism is relatively inconclusive. In this paper we perform a time-course analysis of a previously published EEG data set, and report two novel pre-registered experiments using EEG and MEG. Our data show that suppression increases substantially during the first 4 seconds after stimulus onset, for both monocular and dichoptic masks, and as early as V1. Autism ...
 
 
 ## Results
 
-Figure summarising the Vilidaite reanalysis
-Contrast response functions?
-Waveforms
-Spectra with scalp distributions
-Timecourse for each condition & frequency
-NR for each frequency
-AQ distribution
-Median AQ split
+We began by reanalysing data from a steady-state visually evoked potential (SSVEP) experiment reported by Vilidaite et al (2018). Participants viewed arrays of flickering gratings of varying contrasts. In some conditions a single grating orientation was present flickering at 7Hz, whereas in other conditions a high contrast 'mask' was added at right angles to the target gratings, and flickering at 5Hz. Figure 1a shows contrast response functions with and without the mask - the presence of the mask reduces the 7Hz response to the target. Similarly, Figure 1b shows that the 5Hz response to the mask was itself suppressed by the presence of high contrast targets (note that the data from the mask conditions were not reported by Vilidaite et al.). At both frequencies, responses were localised to the occipital pole (see insets).
+
+We then performed a novel timecourse analysis, in which we separated each 11-second trial into bins of 1 second duration. Figure 1c shows the response at the target frequency (7Hz) to a single stimulus of 32% contrast, and the response at 7Hz when the mask is added. For the target alone there is a gradual decline throughout the trial, consistent with traditional adaptation effects. The reduction in signal strength when the mask component is added illustrates the masking effect. Taking the ratio of the two timecourses reveals that masking increases steeply during the first 4 seconds of stimulus presentation, plateaus for several seconds, and then possibly declines. A similar pattern is observed at 5Hz (Figures 1e,f). Finally, we split the data set by median AQ score (see Figure 1g). Averaging across frequency, the low AQ group showed a strong increase over the first 4 seconds of the trial, whereas the high AQ group showed a much shallower change over the same time period (Figure 1h).
+
 
 ```{r}
 
@@ -161,7 +174,7 @@ meanwaveforms <- array(0,dim=c(14,64,14000))
 }
 }
 }
-
+}
 
 if (runcode==1){
 #   d <- dir('temp/VilidaiteProcessed/')
@@ -228,70 +241,70 @@ if (runcode==1){
 # times <- -499:13500
 # plot(times,fspec,type='l',col='red')
 # lines(times,fspec2,col='green')
-  d <- dir('temp/VilidaiteProcessed/')
-  
-  allwaves <- array(0,dim=c(length(d),14,64,14000))
-  for (s in 1:length(d)){
-    load(paste0('temp/VilidaiteProcessed/',d[s]))
-    allwaves[s,,,] <- meanwaveforms
-  }
-  
-  meanwaveforms <- array(0,dim=c(14,64,14000))
-  alltarget <- matrix(0,nrow=14,ncol=64)
-  allmask <- matrix(0,nrow=14,ncol=64)
-    for (cond in 1:14){
-      for (ch in 1:64){
-        temp <- allwaves[,cond,ch,]
-        allspec <- matrix(0,nrow=length(d),ncol=10000)
-        for (subj in 1:length(d)){
-          allspec[subj,] <- fft(temp[subj,2001:12000])/10000
-        }
-        targetresps <- allspec[,tindex]
-        maskresps <- allspec[,mindex]
-      if (sum(abs(targetresps))>0){  
-      tempxy <- data.frame(Re(targetresps),Im(targetresps))
-      D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-      i1 <- (D<3)
-      tempxy <- data.frame(Re(maskresps),Im(maskresps))
-      D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-      i2 <- (D<3)
-      i <- which((i1*i2)>0)
-        meanwaveforms[cond,ch,] <- colMeans(temp[i,])
-      }
-        spec <- fft(meanwaveforms[cond,ch,2001:12000])/10000
-        alltarget[cond,ch] <- spec[tindex]
-        allmask[cond,ch] <- spec[mindex]
-      }
-    }
-  
-}
-
-targetchannels <- match(targetelectrodes, electrodes) - 2
-
-elecave <- colMeans(meanwaveforms[6,targetchannels,])
-binwidth <- 1000
-f1 <- 7
-tindex <- 1 + f1*(binwidth/1000)
-fspec <- elecave*0
-for (t in 1:(length(elecave)-binwidth)){
-  temp <- elecave[t:(t+binwidth-1)]
-  spec <- fft(temp)/binwidth
-  fspec[t] <- abs(spec[tindex])
-}
-elecave <- colMeans(meanwaveforms[13,targetchannels,])
-binwidth <- 1000
-f1 <- 7
-tindex <- 1 + f1*(binwidth/1000)
-fspec2 <- elecave*0
-for (t in 1:(length(elecave)-binwidth)){
-  temp <- elecave[t:(t+binwidth-1)]
-  spec <- fft(temp)/binwidth
-  fspec2[t] <- abs(spec[tindex])
-}
-
-times <- -499:13500
-plot(times,fspec,type='l',col='red')
-lines(times,fspec2,col='green')
+#   d <- dir('temp/VilidaiteProcessed/')
+#   
+#   allwaves <- array(0,dim=c(length(d),14,64,14000))
+#   for (s in 1:length(d)){
+#     load(paste0('temp/VilidaiteProcessed/',d[s]))
+#     allwaves[s,,,] <- meanwaveforms
+#   }
+#   
+#   meanwaveforms <- array(0,dim=c(14,64,14000))
+#   alltarget <- matrix(0,nrow=14,ncol=64)
+#   allmask <- matrix(0,nrow=14,ncol=64)
+#     for (cond in 1:14){
+#       for (ch in 1:64){
+#         temp <- allwaves[,cond,ch,]
+#         allspec <- matrix(0,nrow=length(d),ncol=10000)
+#         for (subj in 1:length(d)){
+#           allspec[subj,] <- fft(temp[subj,2001:12000])/10000
+#         }
+#         targetresps <- allspec[,tindex]
+#         maskresps <- allspec[,mindex]
+#       if (sum(abs(targetresps))>0){  
+#       tempxy <- data.frame(Re(targetresps),Im(targetresps))
+#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+#       i1 <- (D<3)
+#       tempxy <- data.frame(Re(maskresps),Im(maskresps))
+#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+#       i2 <- (D<3)
+#       i <- which((i1*i2)>0)
+#         meanwaveforms[cond,ch,] <- colMeans(temp[i,])
+#       }
+#         spec <- fft(meanwaveforms[cond,ch,2001:12000])/10000
+#         alltarget[cond,ch] <- spec[tindex]
+#         allmask[cond,ch] <- spec[mindex]
+#       }
+#     }
+#   
+# }
+# 
+# targetchannels <- match(targetelectrodes, electrodes) - 2
+# 
+# elecave <- colMeans(meanwaveforms[6,targetchannels,])
+# binwidth <- 1000
+# f1 <- 7
+# tindex <- 1 + f1*(binwidth/1000)
+# fspec <- elecave*0
+# for (t in 1:(length(elecave)-binwidth)){
+#   temp <- elecave[t:(t+binwidth-1)]
+#   spec <- fft(temp)/binwidth
+#   fspec[t] <- abs(spec[tindex])
+# }
+# elecave <- colMeans(meanwaveforms[13,targetchannels,])
+# binwidth <- 1000
+# f1 <- 7
+# tindex <- 1 + f1*(binwidth/1000)
+# fspec2 <- elecave*0
+# for (t in 1:(length(elecave)-binwidth)){
+#   temp <- elecave[t:(t+binwidth-1)]
+#   spec <- fft(temp)/binwidth
+#   fspec2[t] <- abs(spec[tindex])
+# }
+# 
+# times <- -499:13500
+# plot(times,fspec,type='l',col='red')
+# lines(times,fspec2,col='green')
 
 
 
@@ -306,8 +319,8 @@ lines(times,fspec2,col='green')
 # temp <- allwaves[,6,,2001:12000]
 # meantemp <- apply(allwaves,2:3,mean)
 
-temp <- allwaves[,6,,2001:12000]
-meantemp <- apply(allwaves,2:3,mean)
+# temp <- allwaves[,6,,2001:12000]
+# meantemp <- apply(allwaves,2:3,mean)
 
 f1 <- 7
 f2 <- 5
@@ -316,7 +329,6 @@ f2 <- 5
     mindex <- 1 + f2*(binwidth/1000)
 condlist <- c(6,8,13)
 
-targetchannels <- match(targetelectrodes, electrodes) - 2
 d <- dir('temp/VilidaiteProcessed/')
 all7Hz <- array(0,dim=c(length(d),14,64))
 all5Hz <- array(0,dim=c(length(d),14,64))
@@ -324,7 +336,7 @@ timecourse7Hz <- array(0,dim=c(length(d),3,14000))
 timecourse5Hz <- array(0,dim=c(length(d),3,14000))
 
   for (s in 1:length(d)){
-    tic()
+
     load(paste0('temp/VilidaiteProcessed/',d[s]))
     
     targetchannels <- match(targetelectrodes, electrodes) - 2
@@ -344,15 +356,13 @@ fspec1 <- temp*0
 fspec2 <- temp*0
 for (t in 1:(length(temp)-binwidth)){
   spec <- fft(temp[t:(t+binwidth-1)])/binwidth
-  fspec1[t] <- abs(spec[tindex])
-  fspec2[t] <- abs(spec[mindex])
+  fspec1[t] <- spec[tindex]
+  fspec2[t] <- spec[mindex]
 }
     timecourse7Hz[s,cond,] <- fspec1
     timecourse5Hz[s,cond,] <- fspec2
     
     }
-    
-    print(toc())
     
   }
 
@@ -374,8 +384,8 @@ for (cond in 1:3){
 meantime5Hz <- matrix(0,nrow=length(condlist),ncol=14000) 
 meantime7Hz <- matrix(0,nrow=length(condlist),ncol=14000) 
 for (cond in 1:3){
-meantime7Hz[cond,] <- abs(apply(timecourse7Hz[which(inclusionmatrix7[,cond]>0),cond,],2,mean))
-meantime5Hz[cond,] <- abs(apply(timecourse5Hz[which(inclusionmatrix5[,cond]>0),cond,],2,mean))
+meantime7Hz[cond,] <- abs(apply(abs(timecourse7Hz[which(inclusionmatrix7[,cond]>0),cond,]),2,mean))
+meantime5Hz[cond,] <- abs(apply(abs(timecourse5Hz[which(inclusionmatrix5[,cond]>0),cond,]),2,mean))
 }
 
 plot(-499:13500,meantime5Hz[2,],type='l',col='red')
@@ -388,18 +398,20 @@ lines(-499:13500,meantime7Hz[3,],col='green')
 
 }
 
+
+abs(colMeans(mean5))
+abs(colMeans(mean7))
+
+
 ```
+Our initial reanalysis was promising, however the data were noisy despite the large sample size, because each participant contributed only 8 trials to each condition. We therefore preregistered two new experiments (see http://) to investigate these effects in greater detail. These had a similar overall design to the Vilidaite study, with some small changes intended to optimise the study (see Methods). The key differences were that we used shorter trials (because there were few changes in the latter part of the trials shown in Figure 1), and also focussed all trials into a smaller number of conditions, such that each participant contributed 48 repetitions to each of 4 conditions. The greater data fidelity afforded by this design allowed us to perform a sliding time window analysis of the results.
+
+Figure 2 summarises the results of an EEG experiment testing 100 neurotypical participants. Averaged EEG waveforms showed a strong oscillatory component at each of the two stimulus flicker frequencies (Figure 2a), which slightly lagged the driving signal. Signals were well-isolated in the Fourier domain, and localised to occipital electrodes (Figure 2b). The timecourse at both frequencies showed an initial onset transient, and were then relatively stable for the 6 seconds of stimulus presentation (Figure 2c,d). Responses were weaker in the two masking conditions, and the ratio of target only to target + mask conditions increased over time (Figure 2e,f).
+
+Participants showed a wide range of scores on both the AQ and SPQ scales, which were negatively correlated (Fig 3a; R = , p < ). We again performed a median split by AQ on the EEG data, and calculated the timecourse of the EEG response and masking ratios for each group (Figure 3b,c).
 
 
-
-Figure summarising the EEG experiment
-Stimuli?
-Waveforms
-Spectra with scalp distributions
-Timecourse for each condition & frequency
-NR for each frequency, mon & dich
-AQ vs SPQ with distributions on margins
-Median AQ split
+Next we repeated the experiment on 20 participants using a 248-channel whole-head cryogenic MEG system. Half of the participants had a diagnosis of autism, and the remainder were age and gender-matched controls. Source localisation using a linearly constrained minimum variance (LCMV) beamformer algorithm (reference) showed strong localisation of steady-state signals at the occipital pole (see Figure 4a,b). Responses across V1 showed a similar timecourse to those of the EEG experiment at both frequencies (Figure 4c,d), and showed increasing suppression during the first 4 seconds of stimulus presentation (Figure 4e,f).
 
 
 Figure summarising the MEG experiment
@@ -416,7 +428,3 @@ NR for each frequency, mon & dich, split by group
 
 
 
-
-```{r cars}
-summary(cars)
-```
