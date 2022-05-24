@@ -46,6 +46,8 @@ if (!dir.exists('temp/EEGprocessed/')){dir.create('temp/EEGprocessed/')}
 targetelectrodes <- c('Oz','POz','O1','O2')
 # targetelectrodes <- c('PO8','PO6','PO5','PO7')
 
+hdata <- read.csv('~/Google Drive/Current work/R scripts/EEG analysis/headerfile.csv', header = TRUE)
+
 ```
 
 ## Abstract
@@ -423,11 +425,109 @@ Figure 2 summarises the results of an EEG experiment testing 100 neurotypical pa
 samplerate <- 1000
 targetF <- 5
 maskF <- 7
+duration <- 6
     binwidth <- 1000
     tindex <- 1 + targetF*(binwidth/samplerate)
     mindex <- 1 + maskF*(binwidth/samplerate)
-    
+    legaltriggers <- c(210,211,220,221,230,231,240,241)
+
  if (processraw==1){
+   
+osfproject <- osf_retrieve_node("ab3yv")
+componentlist <- osf_ls_nodes(osfproject)
+EEGID <- pmatch('Raw EEG data 1',as.character(unlist(componentlist[,1])))
+EEGID[2] <- pmatch('Raw EEG data 2',as.character(unlist(componentlist[,1])))
+
+subjcounter <- 0
+for (datahalf in 1:length(EEGID)){
+  EEGtoken <- componentlist[EEGID[datahalf],2]
+  EEGfiles <- osf_ls_files(EEGtoken,n_max=300)
+  for (f in 1:nrow(EEGfiles)){
+    subjcounter <- subcounter + 1
+    
+    # first check if we have this participant's data
+    if (!file.exists(paste0('temp/EEGprocessed/S',subjcounter,'data.RData'))){
+      # if we haven't processed the data, check if we need to download the raw data
+      if (!dir.exists(paste0('temp/raw/S',subjcounter))){
+        if (!file.exists(paste0('temp/raw/S',subjcounter,'.zip'))){
+          osf_download(EEGfiles[f,], path='temp/raw/',progress=TRUE)
+        }
+          unzip(paste0('temp/raw/S',subjcounter,'.zip'),exdir='temp/raw/')
+          file.remove(paste0('temp/raw/S',subjcounter,'.zip'))
+      }
+    # if necessary, process the data for this participant
+      
+      d <- dir(paste0('temp/raw/S',subjcounter), pattern='*.csv.gz',full.names=TRUE)
+      condcounter <- (1:4) * 0
+      alltrials <- array(0,dim=c(50,4,9000,64))
+      subjwaves <- array(0,dim=c(4,9000,64))
+      trialsincluded <- matrix(0,nrow=4,ncol=64)
+      
+      for (block in 1:length(d)){
+      EEGdata <- read.csv(d[block], header = TRUE)
+      electrodes <- colnames(EEGdata)
+
+     triggertimes <- (1:64) * 0
+    counter <- 0
+    for (n in 1:nrow(EEGdata)) {
+      if (EEGdata$Trigger[n] %in% legaltriggers) {
+        counter <- counter + 1
+        triggertimes[counter] <- n
+      }
+    }
+    
+     for (tr in 1:counter) {
+      cond <- which(legaltriggers == EEGdata$Trigger[triggertimes[tr]])
+      cond <- ceiling(cond/2)
+      condcounter[cond] <- condcounter[cond] + 1
+
+      # # horrible hack to fix one trial for P227
+      # if (33-samplerate+(triggertimes[tr])<0){
+      #   if (pno == 227){triggertimes[tr] <- triggertimes[tr] + 150}
+      #   if (pno == 279){triggertimes[tr] <- triggertimes[tr] + 150}
+      #  }
+    for (ch in 1:64){     
+      alltrials[condcounter[cond],cond,,ch] <- as.matrix(EEGdata[33-(1.5*samplerate)+(triggertimes[tr]:(triggertimes[tr] + samplerate * (3+duration) - 1)), ch+3])}
+        
+     }
+        
+      }
+      
+      for (cond in 1:4){
+        for (ch in 1:64){
+          
+          temp <- alltrials[1:condcounter[cond],cond,,ch]
+          
+          spec5 <- NULL
+          spec7 <- NULL
+          for (t in 1:condcounter[cond]){
+            spec <- fft(temp[t,1501:7500])
+            spec5[t] <- spec[6*5+1]
+            spec7[t] <- spec[7*5+1]
+          }
+        spec5[which(is.na(spec5))] <- 0
+        spec7[which(is.na(spec7))] <- 0
+      if (sum(abs(spec5))>0){  
+      tempxy <- data.frame(Re(spec5),Im(spec5))
+      D5 <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+      tempxy <- data.frame(Re(spec7),Im(spec7))
+      D7 <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))      
+      i <- which(D5<3 & D7<3)
+      trialsincluded[cond,ch] <- length(i)
+      subjwaves[cond,,ch] <- colMeans(temp[i,])
+      }   
+        }
+      }
+      
+      
+      qdatasubj <- read.csv(paste0('temp/raw/S',subjcounter,'/questionnairedata.csv'))
+      save(file=paste0('temp/EEGprocessed/S',subjcounter,'data.RData'),list=c('qdatasubj','condcounter','trialsincluded','subjwaves'))
+    }
+
+    
+    
+ }
+}
    
 d <- dir(path = 'temp/EEGprocessed', pattern = '*.RData', full.names=TRUE)
 
