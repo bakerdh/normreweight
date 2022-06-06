@@ -18,8 +18,10 @@ output:
 runcode <- 1  # this flag chooses whether to run the underlying analysis code (1), or just load in the figures from the last time this was run (0)
 processraw <- 1  # this flag determines whether the raw data are downloaded from OSF and processed - this will require ~30GB of hard drive space and take several hours
 
+plotsmoothed <- 0 # either plot the raw data (0), or a smoothed spline (1)
+
 # reasonably compact code to check which packages are installed, install the missing ones, and activate all
-packagelist <- c('knitr','remotes','tictoc','R.matlab','bookdown') # list of CRAN packages
+packagelist <- c('knitr','remotes','tictoc','R.matlab','bookdown','grImport','tiff') # list of CRAN packages
 missingpackages <- packagelist[!packagelist %in% installed.packages()[,1]]
 if (length(missingpackages)>0){install.packages(missingpackages)}
 if (!'osfr' %in% installed.packages()[,1]){remotes::install_github("centerforopenscience/osfr")}
@@ -33,7 +35,33 @@ osf_auth(token = '3dEYuhZNmwWbG3xuhRIiVRo0T2oniOkEP3Ip8i1LPG4PNjeTRln54eGNAG7oyT
 # helper function to make colours transparent
 addalpha <- function(col, alpha=1){apply(sapply(col, col2rgb)/255, 2, function(x) rgb(x[1], x[2], x[3], alpha=alpha))}
 
+
+v4Interp <- function(df, xo, yo, rmax = .75, gridRes = 67) {
+  ## Create a function to perform Matlab's v4 interpolation.
+  ## Takes as input a data-frame with columns x, y, and z (x co-ordinates, y co-ordinates, and amplitude)
+  ## and variables xo and yo, the co-ordinates which will be use to create a grid for interpolation
+  xo <- matrix(rep(xo,length(yo)),nrow = length(xo),ncol = length(yo))
+  yo <- t(matrix(rep(yo,length(xo)),nrow = length(yo),ncol = length(xo)))
+  xy <- df$x + df$y*sqrt(as.complex(-1))
+  d <- matrix(rep(xy,length(xy)),nrow = length(xy), ncol = length(xy))
+  d <- abs(d - t(d))
+  diag(d) <- 1
+  g <- (d^2) * (log(d)-1)   # Green's function.
+  diag(g) <- 0
+  weights <- qr.solve(g,df$z)
+  xy <- t(xy)
+  outmat <- matrix(nrow = gridRes,ncol = gridRes)
+  for (i in 1:gridRes){
+    for (j in 1:gridRes) {
+      test4 <- abs((xo[i,j] + sqrt(as.complex(-1))*yo[i,j]) - xy)
+      g <- (test4^2) * (log(test4)-1)
+      outmat[i,j] <- g %*% weights}}
+  outDf <- data.frame(x = xo[,1],outmat)
+  names(outDf)[1:length(yo[1,])+1] <- yo[1,]
+  return(outDf)}
+
 knitr::opts_chunk$set(echo = TRUE)
+colpal <- c('#000000','#8783CF','#FE5000','#004731','#603FB3')
 
 # check if directories exist to store data files (ignored by git)
 if (!dir.exists('temp/')){dir.create('temp/')}
@@ -45,7 +73,6 @@ if (!dir.exists('temp/MEGdata/')){dir.create('temp/MEGdata/')}
 if (!dir.exists('temp/EEGprocessed/')){dir.create('temp/EEGprocessed/')}
 
 targetelectrodes <- c('Oz','POz','O1','O2')
-# targetelectrodes <- c('PO8','PO6','PO5','PO7')
 
 hdata <- read.csv('~/Google Drive/Current work/R scripts/EEG analysis/headerfile.csv', header = TRUE)
 
@@ -53,6 +80,7 @@ hdata <- read.csv('~/Google Drive/Current work/R scripts/EEG analysis/headerfile
 
 ## Abstract
 
+Our analysis of 220 human M/EEG datasets
 
 ## Introduction
 
@@ -153,8 +181,8 @@ for (s in 1:101) {
         cond <- EEGdata$Trigger[triggertimes[tr]] / 10
         condcounter[cond] <- condcounter[cond] + 1
         for (ch in 1:64){
-        temp <- as.matrix(EEGdata[(triggertimes[tr]:(triggertimes[tr] + samplerate * duration - 1))-999, ch + 2])
-        temp <- temp - mean(temp[1:1000])   # baseline subtraction to remove DC component
+        temp <- as.matrix(EEGdata[(triggertimes[tr]:(triggertimes[tr] + samplerate * duration - 1))-1499, ch + 2])
+        temp <- temp - mean(temp[501:1500])   # baseline subtraction to remove DC component
         allsamples[condcounter[cond],cond,ch,1:(1000*duration)] <- as.vector(rowMeans(temp))
         }
       }
@@ -166,7 +194,7 @@ meanwaveforms <- array(0,dim=c(14,64,14000))
         temp <- allsamples[1:condcounter[cond],cond,ch,]
         allspec <- matrix(0,nrow=condcounter[cond],ncol=10000)
         for (trial in 1:condcounter[cond]){
-          allspec[trial,] <- fft(temp[trial,2001:12000])/10000
+          allspec[trial,] <- fft(temp[trial,2501:12500])/10000
         }
         targetresps <- allspec[,tindex]
         maskresps <- allspec[,mindex]
@@ -256,7 +284,7 @@ if (runcode==1){
 # }
 # 
 # times <- -499:13500
-# plot(times,fspec,type='l',col='red')
+# plot(times,fspec,type='l',col=colpal[1])
 # lines(times,fspec2,col='green')
 #   d <- dir('temp/VilidaiteProcessed/')
 #   
@@ -320,7 +348,7 @@ if (runcode==1){
 # }
 # 
 # times <- -499:13500
-# plot(times,fspec,type='l',col='red')
+# plot(times,fspec,type='l',col=colpal[1])
 # lines(times,fspec2,col='green')
 
 
@@ -344,82 +372,189 @@ f2 <- 5
     binwidth <- 1000
     tindex <- 1 + f1*(binwidth/1000)
     mindex <- 1 + f2*(binwidth/1000)
+    tindex2 <- 1 + 2*f1*(binwidth/1000)
+    mindex2 <- 1 + 2*f2*(binwidth/1000)
+    
 condlist <- c(6,8,13)
 
-d <- dir('temp/VilidaiteProcessed/')
-all7Hz <- array(0,dim=c(length(d),14,64))
-all5Hz <- array(0,dim=c(length(d),14,64))
-timecourse7Hz <- array(0,dim=c(length(d),3,14000))
-timecourse5Hz <- array(0,dim=c(length(d),3,14000))
+d <- dir(path = 'temp/VilidaiteProcessed', pattern = '*.RData', full.names=TRUE)
+EEGtimecourse5Hz <- array(0,dim=c(length(d),3,13000))
+EEGtimecourse7Hz <- array(0,dim=c(length(d),3,13000))
+EEGtimecourse10Hz <- array(0,dim=c(length(d),3,13000))
+EEGtimecourse14Hz <- array(0,dim=c(length(d),3,13000))
 
-  for (s in 1:length(d)){
+for (s in 1:length(d)){
+  load(d[s])
+  targetchannels <- match(targetelectrodes, electrodes) - 2
+  for (cond in 1:3){
+    temp <- colMeans(meanwaveforms[condlist[cond],targetchannels,],na.rm=TRUE)
+    nainds <- which(is.na(temp))   # find occasional NaN values in the waveform
+    temp[nainds] <- 0   # replace with zeros
 
-    load(paste0('temp/VilidaiteProcessed/',d[s]))
-    
-    targetchannels <- match(targetelectrodes, electrodes) - 2
-
-    for (cond in 1:14){
-      for (ch in 1:64){
-        temp <- meanwaveforms[cond,ch,2001:12000]
-        spec <- fft(temp)/length(temp)
-        all7Hz[s,cond,ch] <- spec[7*10+1]
-        all5Hz[s,cond,ch] <- spec[5*10+1]
-      }
-    }
-    for (cond in 1:3){
-    temp <- colMeans(meanwaveforms[condlist[cond],targetchannels,])
-
-fspec1 <- temp*0
-fspec2 <- temp*0
-for (t in 1:(length(temp)-binwidth)){
+fspec1 <- NULL
+fspec2 <- NULL
+fspec3 <- NULL
+fspec4 <- NULL
+for (t in 1:(14000-binwidth)){
   spec <- fft(temp[t:(t+binwidth-1)])/binwidth
   fspec1[t] <- spec[tindex]
   fspec2[t] <- spec[mindex]
+  fspec3[t] <- spec[tindex2]
+  fspec4[t] <- spec[mindex2]
+  
 }
-    timecourse7Hz[s,cond,] <- fspec1
-    timecourse5Hz[s,cond,] <- fspec2
-    
-    }
-    
-  }
+    EEGtimecourse5Hz[s,cond,] <- fspec1
+    EEGtimecourse7Hz[s,cond,] <- fspec2
+    EEGtimecourse10Hz[s,cond,] <- fspec3
+    EEGtimecourse14Hz[s,cond,] <- fspec4
 
-mean7 <- apply(all7Hz[,,targetchannels],1:2,mean)
-mean5 <- apply(all5Hz[,,targetchannels],1:2,mean)
-inclusionmatrix7 <- matrix(0,nrow=length(d),ncol=length(condlist))
-inclusionmatrix5 <- matrix(0,nrow=length(d),ncol=length(condlist))
+  } 
+  
+}
+
+save(file='temp/Pilotsummary.RData',list=c('EEGtimecourse5Hz','EEGtimecourse7Hz','EEGtimecourse10Hz','EEGtimecourse14Hz','electrodes'))
+
+load('temp/Pilotsummary.RData')
+EEGmeantime5Hz <- matrix(0,nrow=3,ncol=13000)
+EEGmeantime7Hz <- matrix(0,nrow=3,ncol=13000)
+EEGmeantime10Hz <- matrix(0,nrow=3,ncol=13000)
+EEGmeantime14Hz <- matrix(0,nrow=3,ncol=13000)
+
 for (cond in 1:3){
-  temp <- mean7[,condlist[cond]]
-        tempxy <- data.frame(Re(temp),Im(temp))
-      D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-      inclusionmatrix7[,cond] <- (D<3)
-   temp <- mean5[,condlist[cond]]
-        tempxy <- data.frame(Re(temp),Im(temp))
-      D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-      inclusionmatrix5[,cond] <- (D<3)
+EEGmeantime5Hz[cond,] <- apply(abs(EEGtimecourse5Hz[,cond,]),2,mean,na.rm=TRUE)
+EEGmeantime7Hz[cond,] <- apply(abs(EEGtimecourse7Hz[,cond,]),2,mean,na.rm=TRUE)
+EEGmeantime10Hz[cond,] <- apply(abs(EEGtimecourse10Hz[,cond,]),2,mean,na.rm=TRUE)
+EEGmeantime14Hz[cond,] <- apply(abs(EEGtimecourse14Hz[,cond,]),2,mean,na.rm=TRUE)
 }
 
-meantime5Hz <- matrix(0,nrow=length(condlist),ncol=14000) 
-meantime7Hz <- matrix(0,nrow=length(condlist),ncol=14000) 
-for (cond in 1:3){
-meantime7Hz[cond,] <- abs(apply(abs(timecourse7Hz[which(inclusionmatrix7[,cond]>0),cond,]),2,mean))
-meantime5Hz[cond,] <- abs(apply(abs(timecourse5Hz[which(inclusionmatrix5[,cond]>0),cond,]),2,mean))
-}
+EEGmaskindex5 <- colMeans(20*log10(abs(EEGtimecourse5Hz[,1,])/abs(EEGtimecourse5Hz[,3,])))
+EEGmaskindex7 <- colMeans(20*log10(abs(EEGtimecourse7Hz[,2,])/abs(EEGtimecourse7Hz[,3,])))
+EEGmaskindex10 <- colMeans(20*log10(abs(EEGtimecourse10Hz[,1,])/abs(EEGtimecourse10Hz[,3,])))
+EEGmaskindex14 <- colMeans(20*log10(abs(EEGtimecourse14Hz[,2,])/abs(EEGtimecourse14Hz[,3,])))
 
-plot(-499:13500,meantime5Hz[2,],type='l',col='red')
-lines(-499:13500,meantime5Hz[1,],col='black')
-lines(-499:13500,meantime5Hz[3,],col='green')
+times <- -499:12500
 
-plot(-499:13500,meantime7Hz[1,],type='l',col='red')
-lines(-499:13500,meantime7Hz[2,],col='black')
-lines(-499:13500,meantime7Hz[3,],col='green')
+plot(times,EEGmeantime5Hz[1,],type='l',col=colpal[1],ylim=c(0,1))
+lines(times,EEGmeantime5Hz[2,],col='grey')
+lines(times,EEGmeantime5Hz[3,],col=colpal[2])
+spl5a <- smooth.spline(times,EEGmeantime5Hz[1,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
+spl5a <- smooth.spline(times,EEGmeantime5Hz[2,],df=20)
+lines(spl5a$x,spl5a$y,col='grey',lwd=2)
+spl5a <- smooth.spline(times,EEGmeantime5Hz[3,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
+
+plot(times,EEGmeantime7Hz[2,],type='l',col=colpal[1],ylim=c(0,1))
+lines(times,EEGmeantime7Hz[1,],col='grey')
+lines(times,EEGmeantime7Hz[3,],col=colpal[2])
+spl5a <- smooth.spline(times,EEGmeantime7Hz[2,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
+spl5a <- smooth.spline(times,EEGmeantime7Hz[1,],df=20)
+lines(spl5a$x,spl5a$y,col='grey',lwd=2)
+spl5a <- smooth.spline(times,EEGmeantime7Hz[3,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
+
+plot(times,EEGmaskindex5,type='l',col=colpal[1],ylim=c(0,6))
+lines(times,EEGmaskindex7,col=colpal[2])
+lines(times,EEGmaskindex10,col=colpal[4])
+lines(times,EEGmaskindex14,col=colpal[5])
+lines(times,(EEGmaskindex5+EEGmaskindex7+EEGmaskindex10+EEGmaskindex14)/4,col=colpal[3])
+
+spl5a <- smooth.spline(times,EEGmaskindex5,df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
+spl5a <- smooth.spline(times,EEGmaskindex7,df=20)
+lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
+spl5a <- smooth.spline(times,(EEGmaskindex5+EEGmaskindex7+EEGmaskindex10+EEGmaskindex14)/4,df=20)
+lines(spl5a$x,spl5a$y,col=colpal[3],lwd=4)
+
+
+
+
+# f1 <- 7
+# f2 <- 5
+#     binwidth <- 1000
+#     tindex <- 1 + f1*(binwidth/1000)
+#     mindex <- 1 + f2*(binwidth/1000)
+# condlist <- c(6,8,13)
+# 
+# d <- dir('temp/VilidaiteProcessed/')
+# all7Hz <- array(0,dim=c(length(d),14,64))
+# all5Hz <- array(0,dim=c(length(d),14,64))
+# timecourse7Hz <- array(0,dim=c(length(d),3,14000))
+# timecourse5Hz <- array(0,dim=c(length(d),3,14000))
+# 
+#   for (s in 1:length(d)){
+# 
+#     load(paste0('temp/VilidaiteProcessed/',d[s]))
+#     
+#     targetchannels <- match(targetelectrodes, electrodes) - 2
+# 
+#     for (cond in 1:14){
+#       for (ch in 1:64){
+#         temp <- meanwaveforms[cond,ch,2001:12000]
+#         spec <- fft(temp)/length(temp)
+#         all7Hz[s,cond,ch] <- spec[7*10+1]
+#         all5Hz[s,cond,ch] <- spec[5*10+1]
+#       }
+#     }
+#     for (cond in 1:3){
+#     temp <- colMeans(meanwaveforms[condlist[cond],targetchannels,])
+# 
+# fspec1 <- temp*0
+# fspec2 <- temp*0
+# for (t in 1:(length(temp)-binwidth)){
+#   spec <- fft(temp[t:(t+binwidth-1)])/binwidth
+#   fspec1[t] <- spec[tindex]
+#   fspec2[t] <- spec[mindex]
+# }
+#     timecourse7Hz[s,cond,] <- fspec1
+#     timecourse5Hz[s,cond,] <- fspec2
+#     
+#     }
+#     
+#   }
+# 
+# mean7 <- apply(all7Hz[,,targetchannels],1:2,mean)
+# mean5 <- apply(all5Hz[,,targetchannels],1:2,mean)
+# inclusionmatrix7 <- matrix(0,nrow=length(d),ncol=length(condlist))
+# inclusionmatrix5 <- matrix(0,nrow=length(d),ncol=length(condlist))
+# for (cond in 1:3){
+#   temp <- mean7[,condlist[cond]]
+#         tempxy <- data.frame(Re(temp),Im(temp))
+#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+#       inclusionmatrix7[,cond] <- (D<3)
+#    temp <- mean5[,condlist[cond]]
+#         tempxy <- data.frame(Re(temp),Im(temp))
+#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+#       inclusionmatrix5[,cond] <- (D<3)
+# }
+# 
+# meantime5Hz <- matrix(0,nrow=length(condlist),ncol=14000) 
+# meantime7Hz <- matrix(0,nrow=length(condlist),ncol=14000) 
+# for (cond in 1:3){
+# meantime7Hz[cond,] <- abs(apply(abs(timecourse7Hz[which(inclusionmatrix7[,cond]>0),cond,]),2,mean))
+# meantime5Hz[cond,] <- abs(apply(abs(timecourse5Hz[which(inclusionmatrix5[,cond]>0),cond,]),2,mean))
+# }
+# 
+# plot(-499:13500,meantime5Hz[2,],type='l',col=colpal[1])
+# lines(-499:13500,meantime5Hz[1,],col='grey')
+# lines(-499:13500,meantime5Hz[3,],col=colpal[2])
+# 
+# plot(-499:13500,meantime7Hz[1,],type='l',col=colpal[1])
+# lines(-499:13500,meantime7Hz[2,],col='grey')
+# lines(-499:13500,meantime7Hz[3,],col=colpal[2])
+# 
+# plot(-499:13500,meantime7Hz[1,]/meantime7Hz[3,],type='l',col=colpal[1])
+# lines(-499:13500,meantime5Hz[2,]/meantime5Hz[3,],col=colpal[2])
+
 
 }
 
 
 ```
-Our initial reanalysis was promising, however the data were noisy despite the large sample size, because each participant contributed only 8 trials to each condition. We therefore preregistered two new experiments (see http://) to investigate these effects in greater detail. These had a similar overall design to the Vilidaite study, with some small changes intended to optimise the study (see Methods). The key differences were that we used shorter trials (because there were few changes in the latter part of the trials shown in Figure 1), and also focussed all trials into a smaller number of conditions, such that each participant contributed 48 repetitions to each of 4 conditions. The greater data fidelity afforded by this design allowed us to perform a sliding time window analysis of the results.
+Our initial reanalysis was promising, however the data were noisy despite the large sample size, because each participant contributed only 8 trials to each condition. We therefore preregistered two new experiments (see https://osf.io/4qudc) to investigate these effects in greater detail. These had a similar overall design to the Vilidaite study, with some small changes intended to optimise the study (see Methods). The key differences were that we used shorter trials (because there were few changes in the latter part of the trials shown in Figure 1), and also focussed all trials into a smaller number of conditions, such that each participant contributed 48 repetitions to each of 4 conditions. The greater data fidelity afforded by this design allowed us to perform a sliding time window analysis of the results.
 
-Figure 2 summarises the results of an EEG experiment testing 100 neurotypical participants. Averaged EEG waveforms showed a strong oscillatory component at each of the two stimulus flicker frequencies (Figure 2a), which slightly lagged the driving signal. Signals were well-isolated in the Fourier domain, and localised to occipital electrodes (Figure 2b). The timecourse at both frequencies showed an initial onset transient, and were then relatively stable for the 6 seconds of stimulus presentation (Figure 2c,d). Responses were weaker in the two masking conditions, and the ratio of target only to target + mask conditions increased over time (Figure 2e,f).
+Figure \@ref(fig:EEGdata) summarises the results of an EEG experiment testing 100 neurotypical participants. Averaged EEG waveforms showed a strong oscillatory component at each of the two stimulus flicker frequencies (Figure \@ref(fig:EEGdata)a), which slightly lagged the driving signal. Signals were well-isolated in the Fourier domain, and localised to occipital electrodes (Figure \@ref(fig:EEGdata)b). The timecourse at both frequencies showed an initial onset transient, and was then relatively stable for the 6 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)c,d). Responses were weaker in the two masking conditions, and the ratio of target only to target + mask conditions increased over time (Figure \@ref(fig:EEGdata)e,f) for both mask types. At 5Hz the increase in masking continued over the first 5 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)e), whereas at 7Hz the increase occurred mostly during the first second after onset (Figure \@ref(fig:EEGdata)f).
 
 ```{r include=FALSE, results='hide'}
 
@@ -525,7 +660,7 @@ for (datahalf in 1:length(EEGID)){
       
       
       qdatasubj <- read.csv(paste0('temp/raw/S',subjcounter,'/questionnairedata.csv'))
-      save(file=paste0('temp/EEGprocessed/S',subjcounter,'data.RData'),list=c('qdatasubj','condcounter','trialsincluded','subjwaves'))
+      save(file=paste0('temp/EEGprocessed/S',subjcounter,'data.RData'),list=c('qdatasubj','condcounter','trialsincluded','subjwaves','electrodes'))
     }
 
     
@@ -534,198 +669,659 @@ for (datahalf in 1:length(EEGID)){
 }
    
 
-# d <- dir(path = 'temp/EEGprocessed', pattern = '*.RData', full.names=TRUE)
+d <- dir(path = 'temp/EEGprocessed', pattern = '*.RData', full.names=TRUE)
+EEGtimecourse5Hz <- array(0,dim=c(length(d),4,8000))
+EEGtimecourse7Hz <- array(0,dim=c(length(d),4,8000))
+allwaves <- array(0,dim=c(length(d),4,9000))
+allspec <- array(0,dim=c(length(d),4,duration*20))
+allheads5 <- array(0,dim=c(length(d),4,64))
+allheads7 <- array(0,dim=c(length(d),4,64))
+for (s in 1:length(d)){
+  load(d[s])
+  targetchannels <- match(targetelectrodes, electrodes) - 2
+  for (cond in 1:4){
+    temp <- rowMeans(subjwaves[cond,,targetchannels],na.rm=TRUE)
+    nainds <- which(is.na(temp))   # find occasional NaN values in the waveform
+    # temp[nainds] <- (temp[nainds-1] + temp[nainds+1])/2   # interpolate adjacent values
+    temp[nainds] <- 0   # replace with zeros
+    allwaves[s,cond,] <- temp - mean(temp)
+    spec <- fft(temp[1501:7500])/6000
+    allspec[s,cond,] <- spec[1+(1:(duration*20))]
+
+fspec1 <- NULL
+fspec2 <- NULL
+for (t in 1:(9000-binwidth)){
+  spec <- fft(temp[t:(t+binwidth-1)])/binwidth
+  fspec1[t] <- spec[tindex]
+  fspec2[t] <- spec[mindex]
+}
+    EEGtimecourse5Hz[s,cond,] <- fspec1
+    EEGtimecourse7Hz[s,cond,] <- fspec2
+
+
+  for (ch in 1:64){
+    temp <- fft(subjwaves[cond,1501:7500,ch])/6000
+    allheads5[s,cond,ch] <- temp[1+(duration*targetF)]
+    allheads7[s,cond,ch] <- temp[1+(duration*maskF)]
+  }
+  } 
+  
+  
+  
+}
+
+save(file='temp/EEGsummary.RData',list=c('allheads5','allheads7','allspec','allwaves','EEGtimecourse5Hz','EEGtimecourse7Hz','electrodes'))
+ }
+    
+if (runcode==1){
+load('temp/EEGsummary.RData')
+
+isincluded <- matrix(rep(1,4*dim(allspec)[1]),nrow=4,ncol=dim(allspec)[1])
+for (cond in 1:4){
+  # note that in allspec the DC component has been removed
+  # so we don't need to add 1 to the index
+      tempxy <- data.frame(Re(allspec[,cond,duration*targetF]),Im(allspec[,cond,duration*targetF]))
+      D5 <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+      tempxy <- data.frame(Re(allspec[,cond,duration*maskF]),Im(allspec[,cond,duration*maskF]))      
+      D7 <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))      
+      isincluded[cond,which(D5>3)] <- 0
+      isincluded[cond,which(D7>3)] <- 0
+   for (s in 1:100){
+     if (max(abs(EEGtimecourse5Hz[s,cond,]))>5){isincluded[cond,s] <- 0}
+   }   
+}
+
+allwaves[which(allwaves<(-100))] <- 0
+allwaves[which(allwaves>100)] <- 0
+
+EEGmeantime5Hz <- matrix(0,nrow=4,ncol=8000)
+EEGmeantime7Hz <- matrix(0,nrow=4,ncol=8000)
+EEGSEtime5Hz <- matrix(0,nrow=4,ncol=8000)
+EEGSEtime7Hz <- matrix(0,nrow=4,ncol=8000)
+meanspec <- matrix(0,nrow=4,ncol=120)
+meanwave <- matrix(0,nrow=4,ncol=9000)
+meanhead5 <- matrix(0,nrow=4,ncol=64)
+meanhead7 <- matrix(0,nrow=4,ncol=64)
+for (cond in 1:4){
+EEGmeantime7Hz[cond,] <- apply(abs(EEGtimecourse7Hz[which(isincluded[cond,]==1),cond,]),2,mean,na.rm=TRUE)
+EEGmeantime5Hz[cond,] <- apply(abs(EEGtimecourse5Hz[which(isincluded[cond,]==1),cond,]),2,mean,na.rm=TRUE)
+
+EEGSEtime7Hz[cond,] <- apply(abs(EEGtimecourse7Hz[which(isincluded[cond,]==1),cond,]),2,sd,na.rm=TRUE)/sqrt(sum(isincluded[cond,]))
+EEGSEtime5Hz[cond,] <- apply(abs(EEGtimecourse5Hz[which(isincluded[cond,]==1),cond,]),2,sd,na.rm=TRUE)/sqrt(sum(isincluded[cond,]))
+
+meanspec[cond,] <- abs(colMeans(allspec[which(isincluded[cond,]==1),cond,],na.rm=TRUE))
+meanwave[cond,] <- colMeans(allwaves[which(isincluded[cond,]==1),cond,],na.rm=TRUE)
+meanhead5[cond,] <- abs(colMeans(allheads5[which(isincluded[cond,]==1),cond,],na.rm=TRUE))
+meanhead7[cond,] <- abs(colMeans(allheads7[which(isincluded[cond,]==1),cond,],na.rm=TRUE))
+}
+
+EEGmaskindex5 <- matrix(0,nrow=2,ncol=8000)
+EEGmaskindexSE5 <- matrix(0,nrow=2,ncol=8000)
+includedboth <- isincluded[1,]*isincluded[3,]
+monratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),3,])
+EEGmaskindex5[1,] <- colMeans(20*log10(monratios))
+EEGmaskindexSE5[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+includedboth <- isincluded[1,]*isincluded[4,]
+dichratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),4,])
+EEGmaskindex5[2,] <- colMeans(20*log10(dichratios))
+EEGmaskindexSE5[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+
+EEGmaskindex7 <- matrix(0,nrow=2,ncol=8000)
+EEGmaskindexSE7 <- matrix(0,nrow=2,ncol=8000)
+includedboth <- isincluded[2,]*isincluded[3,]
+monratios <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),3,])
+EEGmaskindex7[1,] <- colMeans(20*log10(monratios))
+EEGmaskindexSE7[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+includedboth <- isincluded[2,]*isincluded[4,]
+dichratios <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),4,])
+EEGmaskindex7[2,] <- colMeans(20*log10(dichratios))
+EEGmaskindexSE7[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+
+
+# pdf("temp/figures/Fig3.pdf", bg="transparent", height = 10, width = 12)
 # 
-# groupmeans <- array(0,dim=c(length(d),4,4,10))
-# groupspec <- array(0,dim=c(length(d),4,64,121))
-# groupspecplot <- array(0,dim=c(length(d),4,121))
-# groupwaveforms <- array(0,dim=c(length(d),4,8000))
-# EEGtimecourse5Hz <- array(0,dim=c(length(d),4,7000))
-# EEGtimecourse7Hz <- array(0,dim=c(length(d),4,7000))
-# 
-# for (s in 1:length(d)){
-#   load(d[s])
-#   
-#   # remove any NaN values
-#   chanspec[which(is.na(chanspec))] <- 0
-#   allspec[which(is.na(allspec))] <- 0
-#   allsamples[which(is.na(allsamples))] <- 0
-#   
-#   ch <- match(targetelectrodes, electrodes) - 2
-#   
-#   meanchanspec <- (apply(chanspec,2:4,mean))
-#   spectoplot <- (apply(chanspec[,,ch,],c(2,4),mean))
-#   
-#   meanspec <- (apply(allspec,2:4,mean))
-#   for (f in 1:4){
-#     for (cond in 1:4){
-#       for (t in 1:10){
-#         temp <- allspec[,f,cond,t]
-#         tempxy <- data.frame(Re(temp),Im(temp))
-#         D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-#         i <- which(D<3)
-#         meanspec[f,cond,t] <- (mean(temp[i]))
-#       }
-#     }
-#   }
-#   meanwaves <- apply(allsamples,2:3,mean)
-#   
-#   for (cond in 1:4){
-#    fspec1 <- NULL
-# fspec2 <- NULL
-# for (t in 1:(8000-binwidth)){
-#   spec <- fft(meanwaves[cond,t:(t+binwidth-1)])/binwidth
-#   fspec1[t] <- spec[tindex]
-#   fspec2[t] <- spec[mindex]
-# }
-#     EEGtimecourse5Hz[s,cond,] <- fspec1
-#     EEGtimecourse7Hz[s,cond,] <- fspec2 
-#   }
-#   
-#   meanwaves <- meanwaves - mean(meanwaves)
-#   meanwaves <- meanwaves / max(abs(meanwaves))
-#   groupmeans[s,,,] <- meanspec
-#   groupspec[s,,,] <- meanchanspec
-#   groupspecplot[s,,] <- spectoplot
-#   groupwaveforms[s,,] <- meanwaves
-#   
-# }
-# 
-# save(file='temp/EEGsummary.RData',list=c('groupmeans','groupspecplot','groupwaveforms','groupspec','EEGtimecourse5Hz','EEGtimecourse7Hz','electrodes'))
-# 
-#  }
-#     
-# if (runcode==1){
-# load('temp/EEGsummary.RData')
-#     
-# meanspec <- abs(apply(groupmeans,c(2,3,4),mean))
-# spectoplot <- abs(apply(groupspecplot,c(2,3),mean))
-# meanwaves <- apply(groupwaveforms,c(2,3),mean)
-# meanchanspec <- abs(apply(groupspec,c(2,3,4),mean))
-# 
-# EEGmeantime5Hz <- matrix(0,nrow=4,ncol=7000) 
-# EEGmeantime7Hz <- matrix(0,nrow=4,ncol=7000) 
-# for (cond in 1:4){
-# EEGmeantime7Hz[cond,] <- apply(abs(EEGtimecourse7Hz[,cond,]),2,mean)
-# EEGmeantime5Hz[cond,] <- apply(abs(EEGtimecourse5Hz[,cond,]),2,mean)
-# }
-# 
-# pdf("temp/figures/Fig3.pdf", bg="transparent", height = 10, width = 10)
-# 
-# par(mfrow=c(2,2))
-# 
-# times <- ((1:7000)-500)/1000
-# 
-# plotlims <- c(-1,8,0,1)
-# ticklocsx <- -1:8    # locations of tick marks on x axis
-# ticklocsy <- seq(0,1,0.2)    # locations of tick marks on y axis
-# ticklabelsx <- -1:8        # set labels for x ticks
-# ticklabelsy <- ticklocsy    # set labels for y ticks
-# plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
-# axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
-# axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
-# mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
-# mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
-# title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
-# title(ylab="Amplitude", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
-# 
-# lines(times,EEGmeantime5Hz[1,],lwd=2,col='red')
+# par(mfrow=c(3,4))
+
+
+times <- ((1:8000)-1000)/1000
+
+postscript("timecourse1.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,0,0.6)
+ticklocsx <- -1:7    # locations of tick marks on x axis
+ticklocsy <- seq(0,0.6,0.1)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = ticklocsy, side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-0.022,-0.022,0.02,0.02),border=NA,col=rgb(0.5,0.5,0.5))
+
+if (plotsmoothed==0){
+polygon(times[c(1:8000,8000:1)],c(EEGmeantime5Hz[1,]+EEGSEtime5Hz[1,],EEGmeantime5Hz[1,8000:1]-EEGSEtime5Hz[1,8000:1]),col=colpal[1],border=NA)
+polygon(times[c(1:8000,8000:1)],c(EEGmeantime5Hz[3,]+EEGSEtime5Hz[3,],EEGmeantime5Hz[3,8000:1]-EEGSEtime5Hz[3,8000:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8000,8000:1)],c(EEGmeantime5Hz[4,]+EEGSEtime5Hz[4,],EEGmeantime5Hz[4,8000:1]-EEGSEtime5Hz[4,8000:1]),col=colpal[3],border=NA)
+
+lines(times,EEGmeantime5Hz[1,],lwd=2,col=colpal[1])
 # lines(times,EEGmeantime5Hz[2,],lwd=2,col='green')
-# lines(times,EEGmeantime5Hz[3,],lwd=2,col='blue')
-# lines(times,EEGmeantime5Hz[4,],lwd=2,col='orange')
-# 
-# 
-# spl5a <- smooth.spline(times,EEGmeantime5Hz[1,],df=20)
-# lines(spl5a$x,spl5a$y,col='red',lwd=2)
+lines(times,EEGmeantime5Hz[3,],lwd=2,col=colpal[2])
+lines(times,EEGmeantime5Hz[4,],lwd=2,col=colpal[3])
+}
+
+if (plotsmoothed==1){
+spl5aU <- smooth.spline(times,EEGmeantime5Hz[1,]+EEGSEtime5Hz[1,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantime5Hz[1,]-EEGSEtime5Hz[1,],df=20)
+polygon(times[c(1:8000,8000:1)],c(spl5aU$y,spl5aL$y[8000:1]),col=colpal[1],border=NA)
+
+spl5cU <- smooth.spline(times,EEGmeantime5Hz[3,]+EEGSEtime5Hz[3,],df=20)
+spl5cL <- smooth.spline(times,EEGmeantime5Hz[3,]-EEGSEtime5Hz[3,],df=20)
+polygon(times[c(1:8000,8000:1)],c(spl5cU$y,spl5cL$y[8000:1]),col=colpal[2],border=NA)
+
+spl5dU <- smooth.spline(times,EEGmeantime5Hz[4,]+EEGSEtime5Hz[4,],df=20)
+spl5dL <- smooth.spline(times,EEGmeantime5Hz[4,]-EEGSEtime5Hz[4,],df=20)
+polygon(times[c(1:8000,8000:1)],c(spl5dU$y,spl5dL$y[8000:1]),col=colpal[3],border=NA)
+
+spl5a <- smooth.spline(times,EEGmeantime5Hz[1,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
 # spl5b <- smooth.spline(times,EEGmeantime5Hz[2,],df=20)
 # lines(spl5b$x,spl5b$y,col='green',lwd=2)
-# spl5c <- smooth.spline(times,EEGmeantime5Hz[3,],df=20)
-# lines(spl5c$x,spl5c$y,col='blue',lwd=2)
-# spl5d <- smooth.spline(times,EEGmeantime5Hz[4,],df=20)
-# lines(spl5d$x,spl5d$y,col='orange',lwd=2)
-# 
-# 
-# plotlims <- c(-1,8,0,2) 
-# ticklocsx <- -1:8    # locations of tick marks on x axis
-# ticklocsy <- seq(0,2,1)    # locations of tick marks on y axis
-# ticklabelsx <- -1:8        # set labels for x ticks
-# ticklabelsy <- ticklocsy    # set labels for y ticks
-# plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
-# axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
-# axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
-# mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
-# mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
-# title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
-# title(ylab="Masking ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
-# 
-# lines(times,EEGmeantime5Hz[1,]/EEGmeantime5Hz[3,],col='blue',lwd=2)
-# lines(times,EEGmeantime5Hz[1,]/EEGmeantime5Hz[4,],col='orange',lwd=2)
-# 
-# lines(spl5a$x,spl5a$y/spl5c$y,col='blue',lwd=2)
-# lines(spl5a$x,spl5a$y/spl5d$y,col='orange',lwd=2)
-# 
-# 
-# plotlims <- c(-1,8,0,1) 
-# ticklocsx <- -1:8    # locations of tick marks on x axis
-# ticklocsy <- seq(0,1,0.2)    # locations of tick marks on y axis
-# plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
-# axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
-# axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
-# mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
-# mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
-# title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
-# title(ylab="Amplitude", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
-# 
-# 
-# lines(times,EEGmeantime7Hz[1,],lwd=2,col='red')
-# lines(times,EEGmeantime7Hz[2,],lwd=2,col='green')
-# lines(times,EEGmeantime7Hz[3,],lwd=2,col='blue')
-# lines(times,EEGmeantime7Hz[4,],lwd=2,col='orange')
-# 
-# 
+spl5c <- smooth.spline(times,EEGmeantime5Hz[3,],df=20)
+lines(spl5c$x,spl5c$y,col=colpal[2],lwd=2)
+spl5d <- smooth.spline(times,EEGmeantime5Hz[4,],df=20)
+lines(spl5d$x,spl5d$y,col=colpal[3],lwd=2)
+
+}
+
+dev.off()
+
+
+postscript("timecourse2.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,-3,7)
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+polygon(times[c(1:8000,8000:1)],c(EEGmaskindex5[1,]+EEGmaskindexSE5[1,],EEGmaskindex5[1,8000:1]-EEGmaskindexSE5[1,8000:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8000,8000:1)],c(EEGmaskindex5[2,]+EEGmaskindexSE5[2,],EEGmaskindex5[2,8000:1]-EEGmaskindexSE5[2,8000:1]),col=colpal[3],border=NA)
+
+lines(times,EEGmaskindex5[1,],col=colpal[2],lwd=2)
+lines(times,EEGmaskindex5[2,],col=colpal[3],lwd=2)
+}
+if (plotsmoothed==1){
+U <- smooth.spline(times,EEGmaskindex5[1,]+EEGmaskindexSE5[1,],df=20)
+L <- smooth.spline(times,EEGmaskindex5[1,]-EEGmaskindexSE5[1,],df=20)
+polygon(times[c(1:8000,8000:1)],c(U$y,L$y[8000:1]),col=colpal[2],border=NA)
+
+U <- smooth.spline(times,EEGmaskindex5[2,]+EEGmaskindexSE5[2,],df=20)
+L <- smooth.spline(times,EEGmaskindex5[2,]-EEGmaskindexSE5[2,],df=20)
+polygon(times[c(1:8000,8000:1)],c(U$y,L$y[8000:1]),col=colpal[3],border=NA)
+
+L <- smooth.spline(times,EEGmaskindex5[1,],df=20)
+lines(L$x,L$y,col=colpal[2],lwd=2)
+L <- smooth.spline(times,EEGmaskindex5[2,],df=20)
+lines(L$x,L$y,col=colpal[3],lwd=2)
+}
+
+dev.off()
+
+
+postscript("timecourse3.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,0,0.6)
+ticklocsy <- seq(0,0.6,0.1)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = ticklocsy, side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-0.022,-0.022,0.02,0.02),border=NA,col=rgb(0.5,0.5,0.5))
+
+if (plotsmoothed==0){
+polygon(times[c(1:8000,8000:1)],c(EEGmeantime7Hz[2,]+EEGSEtime7Hz[2,],EEGmeantime7Hz[2,8000:1]-EEGSEtime7Hz[2,8000:1]),col=colpal[1],border=NA)
+polygon(times[c(1:8000,8000:1)],c(EEGmeantime7Hz[3,]+EEGSEtime7Hz[3,],EEGmeantime7Hz[3,8000:1]-EEGSEtime7Hz[3,8000:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8000,8000:1)],c(EEGmeantime7Hz[4,]+EEGSEtime7Hz[4,],EEGmeantime7Hz[4,8000:1]-EEGSEtime7Hz[4,8000:1]),col=colpal[3],border=NA)
+  
+# lines(times,EEGmeantime7Hz[1,],lwd=2,col=colpal[1])
+lines(times,EEGmeantime7Hz[2,],lwd=2,col=colpal[1])
+lines(times,EEGmeantime7Hz[3,],lwd=2,col=colpal[2])
+lines(times,EEGmeantime7Hz[4,],lwd=2,col=colpal[3])
+}
+if (plotsmoothed==1){
+  
+spl7bU <- smooth.spline(times,EEGmeantime7Hz[2,]+EEGSEtime7Hz[2,],df=20)
+spl7bL <- smooth.spline(times,EEGmeantime7Hz[2,]-EEGSEtime7Hz[2,],df=20)
+polygon(times[c(1:8000,8000:1)],c(spl7bU$y,spl7bL$y[8000:1]),col=colpal[1],border=NA)
+
+spl7cU <- smooth.spline(times,EEGmeantime7Hz[3,]+EEGSEtime7Hz[3,],df=20)
+spl7cL <- smooth.spline(times,EEGmeantime7Hz[3,]-EEGSEtime7Hz[3,],df=20)
+polygon(times[c(1:8000,8000:1)],c(spl7cU$y,spl7cL$y[8000:1]),col=colpal[2],border=NA)
+
+spl7dU <- smooth.spline(times,EEGmeantime7Hz[4,]+EEGSEtime7Hz[4,],df=20)
+spl7dL <- smooth.spline(times,EEGmeantime7Hz[4,]-EEGSEtime7Hz[4,],df=20)
+polygon(times[c(1:8000,8000:1)],c(spl7dU$y,spl7dL$y[8000:1]),col=colpal[3],border=NA)
+
 # spl7a <- smooth.spline(times,EEGmeantime7Hz[1,],df=20)
-# lines(spl7a$x,spl7a$y,col='red',lwd=2)
-# spl7b <- smooth.spline(times,EEGmeantime7Hz[2,],df=20)
-# lines(spl7b$x,spl7b$y,col='green',lwd=2)
-# spl7c <- smooth.spline(times,EEGmeantime7Hz[3,],df=20)
-# lines(spl7c$x,spl7c$y,col='blue',lwd=2)
-# spl7d <- smooth.spline(times,EEGmeantime7Hz[4,],df=20)
-# lines(spl7d$x,spl7d$y,col='orange',lwd=2)
+# lines(spl7a$x,spl7a$y,col=colpal[1],lwd=2)
+spl7b <- smooth.spline(times,EEGmeantime7Hz[2,],df=20)
+lines(spl7b$x,spl7b$y,col=colpal[1],lwd=2)
+spl7c <- smooth.spline(times,EEGmeantime7Hz[3,],df=20)
+lines(spl7c$x,spl7c$y,col=colpal[2],lwd=2)
+spl7d <- smooth.spline(times,EEGmeantime7Hz[4,],df=20)
+lines(spl7d$x,spl7d$y,col=colpal[3],lwd=2)
+}
+
+dev.off()
+
+postscript("timecourse4.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,-3,6)
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+polygon(times[c(1:8000,8000:1)],c(EEGmaskindex7[1,]+EEGmaskindexSE7[1,],EEGmaskindex7[1,8000:1]-EEGmaskindexSE7[1,8000:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8000,8000:1)],c(EEGmaskindex7[2,]+EEGmaskindexSE7[2,],EEGmaskindex7[2,8000:1]-EEGmaskindexSE7[2,8000:1]),col=colpal[3],border=NA)
+
+lines(times,EEGmaskindex7[1,],col=colpal[2],lwd=2)
+lines(times,EEGmaskindex7[2,],col=colpal[3],lwd=2)
+}
+
+if (plotsmoothed==1){
+U <- smooth.spline(times,EEGmaskindex7[1,]+EEGmaskindexSE7[1,],df=20)
+L <- smooth.spline(times,EEGmaskindex7[1,]-EEGmaskindexSE7[1,],df=20)
+polygon(times[c(1:8000,8000:1)],c(U$y,L$y[8000:1]),col=colpal[2],border=NA)
+
+U <- smooth.spline(times,EEGmaskindex7[2,]+EEGmaskindexSE7[2,],df=20)
+L <- smooth.spline(times,EEGmaskindex7[2,]-EEGmaskindexSE7[2,],df=20)
+polygon(times[c(1:8000,8000:1)],c(U$y,L$y[8000:1]),col=colpal[3],border=NA)
+
+L <- smooth.spline(times,EEGmaskindex7[1,],df=20)
+lines(L$x,L$y,col=colpal[2],lwd=2)
+L <- smooth.spline(times,EEGmaskindex7[2,],df=20)
+lines(L$x,L$y,col=colpal[3],lwd=2)
+}
+
+dev.off()
+
+
+freqlist <- seq(1/6,20,length=ncol(meanspec))
+
+postscript("spectrum.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 10)
+
+plotlims <- c(0,20,0,4)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
+ticklocsx <- seq(0,20,5)    # locations of tick marks on x axis
+ticklocsy <- c(0,0.4,0.8,1,2,3,4)    # locations of tick marks on y axis
+ticklabelsx <- seq(0,20,5)        # set labels for x ticks
+ticklabelsy <- c(0,0.2,0.4,'','','','')    # set labels for y ticks
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)     # plot tick marks (no labels)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklabelsx, side = 1, at=ticklocsx)     # add the tick labels
+mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1) 
+title(xlab="Frequency (Hz)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+lines(c(0,20),c(0,0),lty=3)
+lines(c(0,20),c(1,1),lty=3)
+lines(c(0,20),c(2,2),lty=3)
+lines(c(0,20),c(3,3),lty=3)
+
+# lines(c(5,5),c(0,4),col='grey',lwd=2)
+# lines(c(7,7),c(0,4),col='grey',lwd=2)
+
+polygon(c(1/6,freqlist,20),c(0,2*meanspec[1,],0)+3,border=NA,col=colpal[1])
+polygon(c(1/6,freqlist,20),c(0,2*meanspec[2,],0)+2,border=NA,col=colpal[1])
+polygon(c(1/6,freqlist,20),c(0,2*meanspec[3,],0)+1,border=NA,col=colpal[2])
+polygon(c(1/6,freqlist,20),c(0,2*meanspec[4,],0),border=NA,col=colpal[3])
+
+lines(freqlist,2*meanspec[1,]+3,lwd=2,col='black')
+lines(freqlist,2*meanspec[2,]+2,lwd=2,col='black')
+lines(freqlist,2*meanspec[3,]+1,lwd=2,col='black')
+lines(freqlist,2*meanspec[4,],lwd=2,col='black')
+
+text(20,3.5,'5Hz monocular target',pos=2,cex=1.5)
+text(20,2.5,'7Hz monocular target',pos=2,cex=1.5)
+text(20,1.5,'Monocular combination',pos=2,cex=1.5)
+text(20,0.5,'Dichoptic combination',pos=2,cex=1.5)
+
+dev.off()
+
+
+times <- seq(1/1000,9,1/1000)-1.5
+trigwaveform1 <- -cos(2 * 5 * times * pi)
+trigwaveform2 <- -cos(2 * 7 * times * pi)
+trigwaveform1[1:1500] <- -1
+trigwaveform1[7501:9000] <- -1
+trigwaveform2[1:1500] <- -1
+trigwaveform2[7501:9000] <- -1
+
+postscript("waveform1.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 12)
+
+plotlims <- c(-1,7,-3,2)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
+ticklocsx <- seq(-1,7,1)    # locations of tick marks on x axis
+ticklocsy <- seq(-3,2,1)    # locations of tick marks on y axis
+ticklabelsx <- seq(-1,7,1)        # set labels for x ticks
+ticklabelsy <- ticklocsy    # set labels for y ticks
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)     # plot tick marks (no labels)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklabelsx, side = 1, at=ticklocsx)     # add the tick labels
+mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+polygon(c(0,6,6,0,0),c(-3,-3,2,2,-2),col=rgb(0.95,0.95,0.95),border=NA)
+
+lines(times[501:8500],meanwave[1,501:8500],lwd=1,col=colpal[2])
+lines(times[501:8500],(trigwaveform1[501:8500]/2) - 2.5)
+# text(-1,1.8,'5Hz average waveform',pos=4,cex=1.5)
+
+dev.off()
+
+postscript("waveform2.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 12)
+
+plotlims <- c(-1,7,-3,2)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
+ticklocsx <- seq(-1,7,1)    # locations of tick marks on x axis
+ticklocsy <- seq(-3,2,1)    # locations of tick marks on y axis
+ticklabelsx <- seq(-1,7,1)        # set labels for x ticks
+ticklabelsy <- ticklocsy    # set labels for y ticks
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)     # plot tick marks (no labels)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklabelsx, side = 1, at=ticklocsx)     # add the tick labels
+mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+polygon(c(0,6,6,0,0),c(-3,-3,2,2,-2),col=rgb(0.95,0.95,0.95),border=NA)
+
+lines(times[501:8500],meanwave[2,501:8500],lwd=1,col=colpal[2])
+lines(times[501:8500],(trigwaveform2[501:8500]/2) - 2.5)
+# text(-1,1.8,'7Hz average waveform',pos=4,cex=1.5)
+
+dev.off()
+
+xpos <- 1:64
+ypos <- 1:64
+montageE <- toupper(as.character(hdata$Electrode))
+for (ch in 1:64){
+  i <- match(toupper(electrodes[ch+2]),montageE)
+  xpos[ch] <- hdata$X_position[i]
+  ypos[ch] <- hdata$Y_position[i]
+}
+
+
+rmax <- 0.55   #specify a maximum boundary for the grid
+gridRes <- 100 #specify the interpolation grid resolution
+
+datatoplot <- meanhead5[1,]
+datatoplot[which(is.na(datatoplot))] <- 0
+datatoplot[which(datatoplot<0)] <- 0
+datatoplot[which(datatoplot>30)] <- 0
+
+testDat<- data.frame(x = xpos,
+                     y = -ypos,
+                     z = datatoplot)
+
+#Create the interpolation grid
+xo <- seq(min(-rmax, testDat$x), max(rmax, testDat$x), length = gridRes)
+yo <- seq(max(rmax, testDat$y), min(-rmax, testDat$y), length = gridRes)
+
+interpV4 <- v4Interp(testDat, xo, yo, rmax, gridRes)
+
+zo2 <- as.matrix(interpV4[,2:ncol(interpV4)])
+
+xo2 <- matrix(rep(xo,length(yo)),nrow = length(xo),ncol = length(yo))
+yo2 <- t(matrix(rep(yo,length(xo)),nrow = length(yo),ncol = length(xo)))
+outsidecircle <- sqrt(xo2^2 + yo2^2) > 0.51
+zo2[outsidecircle] <- 0
+
+ramp2 <- colorRamp(c("white",colpal[2]))  
+colmatrix2 <- rgb(ramp2(seq(0, 1, length = 101)), max = 255)
+
+
+tiff('headplot1.tif', height = 600, width = 600, units="px", bg="white")
+    
+plotlims <- c(-rmax,rmax,-rmax,rmax)  
+par(pty="s")  # make axis square
+plot(x=NULL,y=NULL,ann=FALSE, axes=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4]) 
+image(xo,xo,zo2,col=colmatrix2,zlim=c(0,1),add=TRUE,useRaster=FALSE)
+maskx <- c(hdata$OutlineX[1:51]*2.2,hdata$OutlineX[51:1])
+masky <- c(hdata$OutlineY[1:51]*2.2,hdata$OutlineY[51:1])
+polygon(maskx,masky,border=NA,col="white")
+maskx <- c(hdata$OutlineX[51:101]*2.2,hdata$OutlineX[101:51])
+masky <- c(hdata$OutlineY[51:101]*2.2,hdata$OutlineY[101:51])
+polygon(maskx,masky,border=NA,col="white")
+
+blackelectrodes <- match('OZ',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+blackelectrodes <- match('POZ',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+blackelectrodes <- match('O1',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+blackelectrodes <- match('O2',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+
+lines(hdata$OutlineX,hdata$OutlineY,col="black",lwd=2)
+lines(hdata$NoseX,hdata$NoseY,col="black",lwd=2)
+lines(hdata$LearX,hdata$LearY,col="black",lwd=2)
+lines(hdata$RearX,hdata$RearY,col="black",lwd=2)
+
+# text(0,-0.55,'5Hz response',cex=1.5,adj=0.5)
+
+dev.off()
+
+datatoplot <- meanhead7[2,]
+datatoplot[which(is.na(datatoplot))] <- 0
+datatoplot[which(datatoplot<0)] <- 0
+datatoplot[which(datatoplot>30)] <- 0
+
+testDat<- data.frame(x = xpos,
+                     y = -ypos,
+                     z = datatoplot)
+
+#Create the interpolation grid
+xo <- seq(min(-rmax, testDat$x), max(rmax, testDat$x), length = gridRes)
+yo <- seq(max(rmax, testDat$y), min(-rmax, testDat$y), length = gridRes)
+
+interpV4 <- v4Interp(testDat, xo, yo, rmax, gridRes)
+
+zo2 <- as.matrix(interpV4[,2:ncol(interpV4)])
+
+xo2 <- matrix(rep(xo,length(yo)),nrow = length(xo),ncol = length(yo))
+yo2 <- t(matrix(rep(yo,length(xo)),nrow = length(yo),ncol = length(xo)))
+outsidecircle <- sqrt(xo2^2 + yo2^2) > 0.51
+zo2[outsidecircle] <- 0
+
+tiff('headplot2.tif', height = 600, width = 600, units="px", bg="white")
+
+par(pty="s")  # make axis square
+plot(x=NULL,y=NULL,ann=FALSE, axes=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4]) 
+image(xo,xo,zo2,col=colmatrix2,zlim=c(0,1),add=TRUE,useRaster=FALSE)
+maskx <- c(hdata$OutlineX[1:51]*2.2,hdata$OutlineX[51:1])
+masky <- c(hdata$OutlineY[1:51]*2.2,hdata$OutlineY[51:1])
+polygon(maskx,masky,border=NA,col="white")
+maskx <- c(hdata$OutlineX[51:101]*2.2,hdata$OutlineX[101:51])
+masky <- c(hdata$OutlineY[51:101]*2.2,hdata$OutlineY[101:51])
+polygon(maskx,masky,border=NA,col="white")
+
+blackelectrodes <- match('OZ',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+blackelectrodes <- match('POZ',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+blackelectrodes <- match('O1',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+blackelectrodes <- match('O2',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+
+lines(hdata$OutlineX,hdata$OutlineY,col="black",lwd=2)
+lines(hdata$NoseX,hdata$NoseY,col="black",lwd=2)
+lines(hdata$LearX,hdata$LearY,col="black",lwd=2)
+lines(hdata$RearX,hdata$RearY,col="black",lwd=2)
+
+# text(0,-0.55,'7Hz response',cex=1.5,adj=0.5)
+
+dev.off()
+
+# baseline <- data.frame(Re(allspec[,1,duration*targetF]),Im(allspec[,1,duration*targetF]))
+# monmask <- data.frame(Re(allspec[,3,duration*targetF]),Im(allspec[,3,duration*targetF]))
+# dichmask <- data.frame(Re(allspec[,4,duration*targetF]),Im(allspec[,4,duration*targetF]))
+# 
+# par(pty="s")  # make axis square
+# plotlims <- c(-1,1,-1,1)
+# plot(x=NULL,y=NULL,ann=FALSE, axes=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4]) 
+# lines(plotlims[1:2],c(0,0))
+# lines(c(0,0),plotlims[1:2])
+# 
+# points(baseline[,1],baseline[,2],pch=16,cex=0.5,col=addalpha(colpal[1],0.2))
+# points(monmask[,1],monmask[,2],pch=16,cex=0.5,col=addalpha(colpal[2],0.2))
+# points(dichmask[,1],dichmask[,2],pch=16,cex=0.5,col=addalpha(colpal[3],0.2))
+# 
+# points(mean(baseline[,1]),mean(baseline[,2]),pch=16,cex=2,col=addalpha(colpal[1],1))
+# points(mean(monmask[,1]),mean(monmask[,2]),pch=16,cex=2,col=addalpha(colpal[2],1))
+# points(mean(dichmask[,1]),mean(dichmask[,2]),pch=16,cex=2,col=addalpha(colpal[3],1))
 # 
 # 
-# plotlims <- c(-1,8,0,2) 
-# ticklocsx <- -1:8    # locations of tick marks on x axis
-# ticklocsy <- seq(0,2,1)    # locations of tick marks on y axis
-# ticklabelsx <- -1:8        # set labels for x ticks
-# ticklabelsy <- ticklocsy    # set labels for y ticks
-# plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
-# axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
-# axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
-# mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
-# mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
-# title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
-# title(ylab="Masking ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
 # 
-# lines(times,EEGmeantime7Hz[2,]/EEGmeantime7Hz[3,],col='blue',lwd=2)
-# lines(times,EEGmeantime7Hz[2,]/EEGmeantime7Hz[4,],col='orange',lwd=2)
+# baseline <- data.frame(Re(allspec[,2,duration*maskF]),Im(allspec[,2,duration*maskF]))
+# monmask <- data.frame(Re(allspec[,3,duration*maskF]),Im(allspec[,3,duration*maskF]))
+# dichmask <- data.frame(Re(allspec[,4,duration*maskF]),Im(allspec[,4,duration*maskF]))
 # 
-# lines(spl7b$x,spl7b$y/spl7c$y,col='blue',lwd=2)
-# lines(spl7b$x,spl7b$y/spl7d$y,col='orange',lwd=2)
+# par(pty="s")  # make axis square
+# plotlims <- c(-1,1,-1,1)
+# plot(x=NULL,y=NULL,ann=FALSE, axes=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4]) 
+# lines(plotlims[1:2],c(0,0))
+# lines(c(0,0),plotlims[1:2])
 # 
-# dev.off()
+# points(baseline[,1],baseline[,2],pch=16,cex=0.5,col=addalpha(colpal[1],0.2))
+# points(monmask[,1],monmask[,2],pch=16,cex=0.5,col=addalpha(colpal[2],0.2))
+# points(dichmask[,1],dichmask[,2],pch=16,cex=0.5,col=addalpha(colpal[3],0.2))
 # 
+# points(mean(baseline[,1]),mean(baseline[,2]),pch=16,cex=2,col=addalpha(colpal[1],1))
+# points(mean(monmask[,1]),mean(monmask[,2]),pch=16,cex=2,col=addalpha(colpal[2],1))
+# points(mean(dichmask[,1]),mean(dichmask[,2]),pch=16,cex=2,col=addalpha(colpal[3],1))
+# 
+
+
+  e1 <- readTIFF('headplot1.tif')
+  e2 <- readTIFF('headplot2.tif')
+
+  PostScriptTrace(paste('waveform1.ps',sep=''))
+  e3 <- readPicture('waveform1.ps.xml')
+  PostScriptTrace(paste('waveform2.ps',sep=''))
+  e4 <- readPicture('waveform2.ps.xml')
+  
+  PostScriptTrace(paste('spectrum.ps',sep=''))
+  e5 <- readPicture('spectrum.ps.xml')
+  for (n in 1:length(e5@paths)){
+    temp <- class(e5@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e5@paths[n]$path@rgb))<765){e5@paths[n]$path@rgb <- addalpha(e5@paths[n]$path@rgb,alpha=0.2)}}}
+
+   PostScriptTrace(paste('timecourse1.ps',sep=''))
+  e6 <- readPicture('timecourse1.ps.xml')
+  for (n in 1:length(e6@paths)){
+    temp <- class(e6@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e6@paths[n]$path@rgb))<765){e6@paths[n]$path@rgb <- addalpha(e6@paths[n]$path@rgb,alpha=0.2)}}}
+ 
+   PostScriptTrace(paste('timecourse2.ps',sep=''))
+  e7 <- readPicture('timecourse2.ps.xml')
+  for (n in 1:length(e7@paths)){
+    temp <- class(e7@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e7@paths[n]$path@rgb))<765){e7@paths[n]$path@rgb <- addalpha(e7@paths[n]$path@rgb,alpha=0.2)}}}
+
+     PostScriptTrace(paste('timecourse3.ps',sep=''))
+  e8 <- readPicture('timecourse3.ps.xml')
+  for (n in 1:length(e8@paths)){
+    temp <- class(e8@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e8@paths[n]$path@rgb))<765){e8@paths[n]$path@rgb <- addalpha(e8@paths[n]$path@rgb,alpha=0.2)}}}
+
+     PostScriptTrace(paste('timecourse4.ps',sep=''))
+  e9 <- readPicture('timecourse4.ps.xml')
+  for (n in 1:length(e9@paths)){
+    temp <- class(e9@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e9@paths[n]$path@rgb))<765){e9@paths[n]$path@rgb <- addalpha(e9@paths[n]$path@rgb,alpha=0.2)}}}
+  
+  
+  
+  pdf('temp/figures/Fig3.pdf', bg="transparent", height = 6, width = 15)
+  par(mar=c(0.1,0.1,0.1,0.1))
+  plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=c(0,1), ylim=c(0,1)) 
+
+  aspratio <- 6/15  # this is the aspect ratio of the output pdf
+  imwidth <- 0.28
+  xstart <- 0.02
+  ystart <- 0.75
+  rasterImage(e1,xstart,ystart,xstart+imwidth*aspratio,ystart+imwidth)
+  ystart <- 0.475
+  rasterImage(e2,xstart,ystart,xstart+imwidth*aspratio,ystart+imwidth)
+
+  grid.picture(e3,x=0.3,y=0.85,width=0.3,height=1)
+  grid.picture(e4,x=0.3,y=0.6,width=0.3,height=1)
+  grid.picture(e5,x=0.25,y=0.25,width=0.45,height=1)
+
+  grid.picture(e6,x=0.6,y=0.75,width=0.25,height=1)
+  grid.picture(e7,x=0.85,y=0.75,width=0.25,height=1)
+  grid.picture(e8,x=0.6,y=0.25,width=0.25,height=1)
+  grid.picture(e9,x=0.85,y=0.25,width=0.25,height=1)
+  
+  text(-0.02,1,'(a)',pos=4,cex=2)
+  text(-0.02,0.45,'(b)',pos=4,cex=2)
+  text(0.515,1,'(c)',pos=4,cex=2)
+  text(0.515,0.46,'(d)',pos=4,cex=2)
+  text(0.785,1,'(e)',pos=4,cex=2)
+  text(0.785,0.46,'(f)',pos=4,cex=2)
+  
+  text(-0.02,0.61,'5Hz',pos=4,cex=2)
+  text(-0.02,0.89,'7Hz',pos=4,cex=2)
+
+  dev.off()
+  
+  file.remove(c('headplot1.tif','headplot2.tif','spectrum.ps','timecourse1.ps','timecourse2.ps','timecourse3.ps','timecourse4.ps','waveform1.ps','waveform2.ps'))
+  file.remove(c('spectrum.ps.xml','timecourse1.ps.xml','timecourse2.ps.xml','timecourse3.ps.xml','timecourse4.ps.xml','waveform1.ps.xml','waveform2.ps.xml'))
+
 }
     
 
+
 ```
 
-```{r EEGdata, fig.cap="E.", fig.align="center", echo=FALSE}
+```{r EEGdata, fig.cap="Summary of EEG results for N=100 neurotypical participants. Panel (a) shows scalp topographies and averaged waveforms for 5Hz (top) and 7Hz (bottom) stimuli. The black sine wave trace in each panel illustrates the driving contrast modulation, and black points on the scalp topographies indicate electrodes Oz, O1, O2 and POz. Panel (b) shows the Fourier amplitude spectrum for each condition, with clear peaks at 5Hz and 7Hz. Panels (c,d) show timecourses at each frequency for the baseline condition (black), and the monocular (blue) and dichoptic (red) masking conditions. Panels (e,f) show suppression ratios as a function of time for each mask type. Light grey rectangles indicate the period of stimulus presentation.", fig.align="center", echo=FALSE}
 
 knitr::include_graphics('temp/figures/Fig3.pdf')
 
 ```
 
-Participants showed a wide range of scores on both the AQ and SPQ scales, which were negatively correlated (Fig 3a; R = , p < ). We again performed a median split by AQ on the EEG data, and calculated the timecourse of the EEG response and masking ratios for each group (Figure 3b,c).
+Participants showed a wide range of scores on both the AQ and SPQ scales, which were negatively correlated (Fig 3a; R = , p < ). We again performed a median split by AQ on the EEG data, and calculated the timecourse of the EEG response and suppression ratios for each group (Figure 3b,c).
 
 
 Next we repeated the experiment on 20 participants using a 248-channel whole-head cryogenic MEG system. Half of the participants had a diagnosis of autism, and the remainder were age and gender-matched controls. Source localisation using a linearly constrained minimum variance (LCMV) beamformer algorithm (reference) showed strong localisation of steady-state signals at the occipital pole (see Figure 4a,b). Responses across V1 showed a similar timecourse to those of the EEG experiment at both frequencies (Figure 4c,d), and showed increasing suppression during the first 4 seconds of stimulus presentation (Figure 4e,f).
@@ -733,300 +1329,700 @@ Next we repeated the experiment on 20 participants using a 248-channel whole-hea
 
 ```{r include=FALSE, results='hide'}
 
-if (processraw==1){
-  
+nareas <- 7
 samplerate <- 1001
 targetF <- 5
 maskF <- 7
+duration <- 6
     binwidth <- 1001
     tindex <- 1 + targetF*(binwidth/samplerate)
     mindex <- 1 + maskF*(binwidth/samplerate)
     
-# d <- dir(path = 'temp/V2/', pattern = '*alltrialsV2.mat', full.names=TRUE)
-# d2 <- dir(path = 'temp/V2/', pattern = '*alltrialsV2.mat', full.names=FALSE)
-d <- dir(path = 'temp/MEGdata/', pattern = '*alltrials.mat', full.names=TRUE)
-d2 <- dir(path = 'temp/MEGdata/', pattern = '*alltrials.mat', full.names=FALSE)
+if (processraw==1){
+  
+d <- dir(path = 'temp/MEGtrialsWang/', pattern = '*alltrials.mat', full.names=TRUE)
+d2 <- dir(path = 'temp/MEGtrialsWang/', pattern = '*alltrials.mat', full.names=FALSE)
 
-allresps <- array(0, dim=c(length(d),4,2,9))
-allspectra <- array(0, dim=c(length(d),4,6006))
-allwaves <- array(0, dim=c(length(d), 4, 9010))
-MEGtimecourse7Hz <- array(0, dim=c(length(d),4,8009))
-MEGtimecourse5Hz <- array(0, dim=c(length(d),4,8009))
+MEGtimecourse5Hz <- array(0,dim=c(length(d),nareas,4,8008))
+MEGtimecourse7Hz <- array(0,dim=c(length(d),nareas,4,8008))
+# allwaves <- array(0,dim=c(length(d),4,9009))
+allspec <- array(0,dim=c(length(d),nareas,4,duration*20))
 allRnos <- NULL
 for (s in 1:length(d)){
   allRnos[s] <- substr(d2[s],1,5)
   data <- readMat(d[s])
-  
+  for (area in 1:nareas){
   for (cond in 1:4){
-      for (t in 1:9){
-        all1F <- NULL
-        all2F <- NULL
-        for (rep in 1:data$trialcounter[1,cond]){
-          trial <- data$alltrials[cond,rep,]
+    temp <- colMeans(data$alltrials[area,cond,1:data$trialcounter[1,cond],],na.rm=TRUE)
+    nainds <- which(is.na(temp))   # find occasional NaN values in the waveform
+    temp[nainds] <- 0   # replace with zeros
+    # allwaves[s,cond,] <- temp - mean(temp)
+    spec <- fft(temp[1501:7500])/6000
+    allspec[s,area,cond,] <- spec[1+(1:(duration*20))]
 
-        sample <- trial[(1+((t-1)*1001)):(t*1001)]
-        fftsample <- fft(sample)/length(sample)
-
-        all1F[rep] <- fftsample[targetF + 1]
-        all2F[rep] <- fftsample[maskF + 1]
-      }
-
-        tempxy <- data.frame(Re(all1F),Im(all1F))
-        D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-        i <- which(D<3)
-        allresps[s,cond,1,t] <- mean(all1F[i])
-
-        tempxy <- data.frame(Re(all2F),Im(all2F))
-        D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-        i <- which(D<3)
-        allresps[s,cond,2,t] <- mean(all2F[i])
-    }
-    
-    meanwave <- colMeans(data$alltrials[cond,1:data$trialcounter[1,cond],])
-    
-    sample <- meanwave[1001:7006]
-    allspectra[s,cond,] <- fft(sample)/length(sample)  
-
-    allwaves[s,cond,] <- meanwave
-    
 fspec1 <- NULL
 fspec2 <- NULL
-for (t in 1:(length(meanwave)-binwidth)){
-  spec <- fft(meanwave[t:(t+binwidth-1)])/binwidth
+for (t in 1:(9009-binwidth)){
+  spec <- fft(temp[t:(t+binwidth-1)])/binwidth
   fspec1[t] <- spec[tindex]
   fspec2[t] <- spec[mindex]
 }
-    MEGtimecourse5Hz[s,cond,] <- fspec1
-    MEGtimecourse7Hz[s,cond,] <- fspec2
-    
-    
+    MEGtimecourse5Hz[s,area,cond,] <- fspec1
+    MEGtimecourse7Hz[s,area,cond,] <- fspec2
+
+  } 
+  
+}
+}
+
+save(file='temp/MEGsummary.RData',list=c('allspec','MEGtimecourse5Hz','MEGtimecourse7Hz','allRnos'))
+
+
+load('temp/MEGsummary.RData')
+
+isincluded <- array(1, dim=c(nareas,4,dim(allspec)[1]))
+for (area in 1:nareas){
+for (cond in 1:4){
+  # note that in allspec the DC component has been removed
+  # so we don't need to add 1 to the index
+      tempxy <- data.frame(Re(allspec[,area,cond,duration*targetF]),Im(allspec[,area,cond,duration*targetF]))
+      D5 <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+      tempxy <- data.frame(Re(allspec[,area,cond,duration*maskF]),Im(allspec[,area,cond,duration*maskF]))      
+      D7 <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))      
+      isincluded[area,cond,which(D5>3)] <- 0
+      isincluded[area,cond,which(D7>3)] <- 0
+   for (s in 1:20){
+     if (max(abs(MEGtimecourse5Hz[s,area,cond,]))>5){isincluded[area,cond,s] <- 0}
+   }   
+}
+}
+
+MEGmeantime5Hz <- array(0,dim=c(nareas,4,8008))
+MEGmeantime7Hz <- array(0,dim=c(nareas,4,8008))
+MEGSEtime5Hz <- array(0,dim=c(nareas,4,8008))
+MEGSEtime7Hz <- array(0,dim=c(nareas,4,8008))
+meanspec <- array(0,dim=c(nareas,4,120))
+for (area in 1:nareas){
+for (cond in 1:4){
+MEGmeantime7Hz[area,cond,] <- apply(abs(MEGtimecourse7Hz[which(isincluded[area,cond,]==1),area,cond,]),2,mean,na.rm=TRUE)
+MEGmeantime5Hz[area,cond,] <- apply(abs(MEGtimecourse5Hz[which(isincluded[area,cond,]==1),area,cond,]),2,mean,na.rm=TRUE)
+
+MEGSEtime7Hz[area,cond,] <- apply(abs(MEGtimecourse7Hz[which(isincluded[area,cond,]==1),area,cond,]),2,sd,na.rm=TRUE)/sqrt(sum(isincluded[area,cond,]))
+MEGSEtime5Hz[area,cond,] <- apply(abs(MEGtimecourse5Hz[which(isincluded[area,cond,]==1),area,cond,]),2,sd,na.rm=TRUE)/sqrt(sum(isincluded[area,cond,]))
+
+meanspec[area,cond,] <- abs(colMeans(allspec[which(isincluded[area,cond,]==1),area,cond,],na.rm=TRUE))
+# meanwave[area,cond,] <- colMeans(allwaves[which(isincluded[area,cond,]==1),area,cond,],na.rm=TRUE)
+}
+}
+
+MEGmaskindex5 <- array(0, dim=c(nareas,2,8008))
+MEGmaskindexSE5 <- array(0, dim=c(nareas,2,8008))
+MEGmaskindex7 <- array(0, dim=c(nareas,2,8008))
+MEGmaskindexSE7 <- array(0, dim=c(nareas,2,8008))
+for (area in 1:nareas){
+includedboth <- isincluded[area,1,]*isincluded[area,3,]
+monratios <- abs(MEGtimecourse5Hz[which(includedboth==1),area,1,])/abs(MEGtimecourse5Hz[which(includedboth==1),area,3,])
+MEGmaskindex5[area,1,] <- colMeans(20*log10(monratios))
+MEGmaskindexSE5[area,1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+includedboth <- isincluded[area,1,]*isincluded[area,4,]
+dichratios <- abs(MEGtimecourse5Hz[which(includedboth==1),area,1,])/abs(MEGtimecourse5Hz[which(includedboth==1),area,4,])
+MEGmaskindex5[area,2,] <- colMeans(20*log10(dichratios))
+MEGmaskindexSE5[area,2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+
+includedboth <- isincluded[area,2,]*isincluded[area,3,]
+monratios <- abs(MEGtimecourse7Hz[which(includedboth==1),area,2,])/abs(MEGtimecourse7Hz[which(includedboth==1),area,3,])
+MEGmaskindex7[area,1,] <- colMeans(20*log10(monratios))
+MEGmaskindexSE7[area,1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+includedboth <- isincluded[area,2,]*isincluded[area,4,]
+dichratios <- abs(MEGtimecourse7Hz[which(includedboth==1),area,2,])/abs(MEGtimecourse7Hz[which(includedboth==1),area,4,])
+MEGmaskindex7[area,2,] <- colMeans(20*log10(dichratios))
+MEGmaskindexSE7[area,2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+}
+
+times <- ((1:8008)-1001)/1001
+
+postscript("timecourse1.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,0,0.6)
+ticklocsx <- -1:7    # locations of tick marks on x axis
+ticklocsy <- seq(0,0.6,0.1)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = ticklocsy, side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Amplitude", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-0.022,-0.022,0.02,0.02),border=NA,col=rgb(0.5,0.5,0.5))
+
+if (plotsmoothed==0){
+polygon(times[c(1:8008,8008:1)],10*c(MEGmeantime5Hz[1,]+MEGSEtime5Hz[1,],MEGmeantime5Hz[1,8008:1]-MEGSEtime5Hz[1,8008:1]),col=colpal[1],border=NA)
+polygon(times[c(1:8008,8008:1)],10*c(MEGmeantime5Hz[3,]+MEGSEtime5Hz[3,],MEGmeantime5Hz[3,8008:1]-MEGSEtime5Hz[3,8008:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8008,8008:1)],10*c(MEGmeantime5Hz[4,]+MEGSEtime5Hz[4,],MEGmeantime5Hz[4,8008:1]-MEGSEtime5Hz[4,8008:1]),col=colpal[3],border=NA)
+
+lines(times,10*MEGmeantime5Hz[1,],lwd=2,col=colpal[1])
+# lines(times,MEGmeantime5Hz[2,],lwd=2,col='green')
+lines(times,10*MEGmeantime5Hz[3,],lwd=2,col=colpal[2])
+lines(times,10*MEGmeantime5Hz[4,],lwd=2,col=colpal[3])
+}
+
+if (plotsmoothed==1){
+  for (area in 1:nareas){
+spl5aU <- smooth.spline(times,MEGmeantime5Hz[1,]+MEGSEtime5Hz[1,],df=20)
+spl5aL <- smooth.spline(times,MEGmeantime5Hz[1,]-MEGSEtime5Hz[1,],df=20)
+polygon(times[c(1:8008,8008:1)],c(spl5aU$y,spl5aL$y[8008:1]),col=colpal[1],border=NA)
+
+spl5cU <- smooth.spline(times,MEGmeantime5Hz[3,]+MEGSEtime5Hz[3,],df=20)
+spl5cL <- smooth.spline(times,MEGmeantime5Hz[3,]-MEGSEtime5Hz[3,],df=20)
+polygon(times[c(1:8008,8008:1)],c(spl5cU$y,spl5cL$y[8008:1]),col=colpal[2],border=NA)
+
+spl5dU <- smooth.spline(times,MEGmeantime5Hz[4,]+MEGSEtime5Hz[4,],df=20)
+spl5dL <- smooth.spline(times,MEGmeantime5Hz[4,]-MEGSEtime5Hz[4,],df=20)
+polygon(times[c(1:8008,8008:1)],c(spl5dU$y,spl5dL$y[8008:1]),col=colpal[3],border=NA)
   }
+  for (area in 1:nareas){  
+spl5a <- smooth.spline(times,10*MEGmeantime5Hz[area,1,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
+# spl5b <- smooth.spline(times,MEGmeantime5Hz[2,],df=20)
+# lines(spl5b$x,spl5b$y,col='green',lwd=2)
+spl5c <- smooth.spline(times,10*MEGmeantime5Hz[area,3,],df=20)
+lines(spl5c$x,spl5c$y,col=colpal[2],lwd=2)
+spl5d <- smooth.spline(times,10*MEGmeantime5Hz[area,4,],df=20)
+lines(spl5d$x,spl5d$y,col=colpal[3],lwd=2)
 }
-
-save(file='temp/MEGsummary.RData',list=c('allspectra','allresps','allwaves','MEGtimecourse5Hz','MEGtimecourse7Hz','allRnos'))
 }
-    
-if (runcode==1){
-  
-  load('temp/MEGsummary.RData')
-  
-allresps <- abs(allresps)
-meanspec <- apply(allresps,2:4,mean)
-
-MEGmeantime5Hz <- matrix(0,nrow=4,ncol=8009) 
-MEGmeantime7Hz <- matrix(0,nrow=4,ncol=8009) 
-for (cond in 1:4){
-MEGmeantime7Hz[cond,] <- apply(abs(MEGtimecourse7Hz[,cond,]),2,mean)
-MEGmeantime5Hz[cond,] <- apply(abs(MEGtimecourse5Hz[,cond,]),2,mean)
-}
-
-
-qdata <- read.csv('~/Google Drive/Current work/Teaching/MSci project 2021/MSci project questionnaires 2021 (Responses) - Form Responses 1.csv')
-qgroup <- as.factor(qdata[,5])
-qRnos <- as.character(qdata[,2])
-qAges <- qdata[,3]
-qRnos[20] <- 'R5860'
-qgroup[20] <- 'Yes'
-qAges[20] <- 19
-
-  
-sortedgroups <- NULL
-for (s in 1:length(allRnos)){sortedgroups[s] <- qgroup[which(qRnos==allRnos[s])]}
-# sortedgroups now codes 1 = control, 2 = ASC in the order of the MEG data
-
-lowAQ <- abs(apply(abs(allresps[which(sortedgroups==1),,,]),c(2,3,4),mean))
-highAQ <- abs(apply(abs(allresps[which(sortedgroups==2),,,]),c(2,3,4),mean))
-
-
-
-
-MEGmeantime5HzCON <- matrix(0,nrow=4,ncol=8009) 
-MEGmeantime7HzCON <- matrix(0,nrow=4,ncol=8009) 
-MEGmeantime5HzASD <- matrix(0,nrow=4,ncol=8009) 
-MEGmeantime7HzASD <- matrix(0,nrow=4,ncol=8009) 
-for (cond in 1:4){
-MEGmeantime7HzCON[cond,] <- apply(abs(MEGtimecourse7Hz[which(sortedgroups==1),cond,]),2,mean)
-MEGmeantime5HzCON[cond,] <- apply(abs(MEGtimecourse5Hz[which(sortedgroups==1),cond,]),2,mean)
-MEGmeantime7HzASD[cond,] <- apply(abs(MEGtimecourse7Hz[which(sortedgroups==2),cond,]),2,mean)
-MEGmeantime5HzASD[cond,] <- apply(abs(MEGtimecourse5Hz[which(sortedgroups==2),cond,]),2,mean)
-}
-
-pdf("temp/figures/Fig4.pdf", bg="transparent", height = 10, width = 10)
-
-par(mfrow=c(2,2))
-
-times <- ((1:8009)-500)/1000
-
-plotlims <- c(-1,8,0,30)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
-ticklocsx <- -1:8    # locations of tick marks on x axis
-ticklocsy <- seq(0,30,10)    # locations of tick marks on y axis
-ticklabelsx <- -1:8        # set labels for x ticks
-ticklabelsy <- ticklocsy    # set labels for y ticks
-plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
-axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
-axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
-mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
-mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
-title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
-title(ylab="Amplitude", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
-
-# lines(times,1000*meanspec[1,1,],lwd=2,col='red')
-# lines(times,1000*meanspec[2,1,],lwd=2,col='green')
-# lines(times,1000*meanspec[3,1,],lwd=2,col='blue')
-# lines(times,1000*meanspec[4,1,],lwd=2,col='orange')
-
-
-# lines(times,1000*MEGmeantime5Hz[1,],lwd=2,col='red')
-# lines(times,1000*MEGmeantime5Hz[2,],lwd=2,col='green')
-# lines(times,1000*MEGmeantime5Hz[3,],lwd=2,col='blue')
-# lines(times,1000*MEGmeantime5Hz[4,],lwd=2,col='orange')
-spl5a <- smooth.spline(times,1000*MEGmeantime5Hz[1,],df=20)
-lines(spl5a$x,spl5a$y,col='red',lwd=2)
-spl5b <- smooth.spline(times,1000*MEGmeantime5Hz[2,],df=20)
-lines(spl5b$x,spl5b$y,col='green',lwd=2)
-spl5c <- smooth.spline(times,1000*MEGmeantime5Hz[3,],df=20)
-lines(spl5c$x,spl5c$y,col='blue',lwd=2)
-spl5d <- smooth.spline(times,1000*MEGmeantime5Hz[4,],df=20)
-lines(spl5d$x,spl5d$y,col='orange',lwd=2)
-
-# lines(times,1000*MEGmeantime5HzASD[1,],lwd=2,col='red',lty=2)
-# lines(times,1000*MEGmeantime5HzASD[2,],lwd=2,col='green',lty=2)
-# lines(times,1000*MEGmeantime5HzASD[3,],lwd=2,col='blue',lty=2)
-# lines(times,1000*MEGmeantime5HzASD[4,],lwd=2,col='orange',lty=2)
-spl5aASD <- smooth.spline(times,1000*MEGmeantime5HzASD[1,],df=20)
-lines(spl5aASD$x,spl5aASD$y,col='red',lwd=2,lty=2)
-spl5bASD <- smooth.spline(times,1000*MEGmeantime5HzASD[2,],df=20)
-lines(spl5bASD$x,spl5bASD$y,col='green',lwd=2,lty=2)
-spl5cASD <- smooth.spline(times,1000*MEGmeantime5HzASD[3,],df=20)
-lines(spl5cASD$x,spl5cASD$y,col='blue',lwd=2,lty=2)
-spl5dASD <- smooth.spline(times,1000*MEGmeantime5HzASD[4,],df=20)
-lines(spl5dASD$x,spl5dASD$y,col='orange',lwd=2,lty=2)
-
-# lines(times,1000*MEGmeantime5HzCON[1,],lwd=2,col='red',lty=3)
-# lines(times,1000*MEGmeantime5HzCON[2,],lwd=2,col='green',lty=3)
-# lines(times,1000*MEGmeantime5HzCON[3,],lwd=2,col='blue',lty=3)
-# lines(times,1000*MEGmeantime5HzCON[4,],lwd=2,col='orange',lty=3)
-spl5aCON <- smooth.spline(times,1000*MEGmeantime5HzCON[1,],df=20)
-lines(spl5aCON$x,spl5aCON$y,col='red',lwd=2,lty=3)
-spl5bCON <- smooth.spline(times,1000*MEGmeantime5HzCON[2,],df=20)
-lines(spl5bCON$x,spl5bCON$y,col='green',lwd=2,lty=3)
-spl5cCON <- smooth.spline(times,1000*MEGmeantime5HzCON[3,],df=20)
-lines(spl5cCON$x,spl5cCON$y,col='blue',lwd=2,lty=3)
-spl5dCON <- smooth.spline(times,1000*MEGmeantime5HzCON[4,],df=20)
-lines(spl5dCON$x,spl5dCON$y,col='orange',lwd=2,lty=3)
-
-
-
-plotlims <- c(-1,8,0,2)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
-ticklocsx <- -1:8    # locations of tick marks on x axis
-ticklocsy <- seq(0,2,1)    # locations of tick marks on y axis
-ticklabelsx <- -1:8        # set labels for x ticks
-ticklabelsy <- ticklocsy    # set labels for y ticks
-plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
-axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
-axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
-mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
-mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
-title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
-title(ylab="Masking ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
-
-lines(spl5b$x,spl5a$y/spl5c$y,col='blue',lwd=2)
-lines(spl5b$x,spl5a$y/spl5d$y,col='orange',lwd=2)
-
-lines(spl5bASD$x,spl5aASD$y/spl5cASD$y,col='blue',lwd=2,lty=2)
-lines(spl5bASD$x,spl5aASD$y/spl5dASD$y,col='orange',lwd=2,lty=2)
-
-lines(spl5bCON$x,spl5aCON$y/spl5cCON$y,col='blue',lwd=2,lty=3)
-lines(spl5bCON$x,spl5aCON$y/spl5dCON$y,col='orange',lwd=2,lty=3)
-
-
-plotlims <- c(-1,8,0,30)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
-ticklocsx <- -1:8    # locations of tick marks on x axis
-ticklocsy <- seq(0,30,10)    # locations of tick marks on y axis
-ticklabelsx <- -1:8        # set labels for x ticks
-ticklabelsy <- ticklocsy    # set labels for y ticks
-plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
-axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
-axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
-mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
-mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
-title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
-title(ylab="Amplitude", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
-
-
-# lines(times,1000*MEGmeantime7Hz[1,],lwd=2,col='red')
-# lines(times,1000*MEGmeantime7Hz[2,],lwd=2,col='green')
-# lines(times,1000*MEGmeantime7Hz[3,],lwd=2,col='blue')
-# lines(times,1000*MEGmeantime7Hz[4,],lwd=2,col='orange')
-spl7a <- smooth.spline(times,1000*MEGmeantime7Hz[1,],df=20)
-lines(spl7a$x,spl7a$y,col='red',lwd=2)
-spl7b <- smooth.spline(times,1000*MEGmeantime7Hz[2,],df=20)
-lines(spl7b$x,spl7b$y,col='green',lwd=2)
-spl7c <- smooth.spline(times,1000*MEGmeantime7Hz[3,],df=20)
-lines(spl7c$x,spl7c$y,col='blue',lwd=2)
-spl7d <- smooth.spline(times,1000*MEGmeantime7Hz[4,],df=20)
-lines(spl7d$x,spl7d$y,col='orange',lwd=2)
-
-# lines(times,1000*MEGmeantime7HzASD[1,],lwd=2,col='red',lty=2)
-# lines(times,1000*MEGmeantime7HzASD[2,],lwd=2,col='green',lty=2)
-# lines(times,1000*MEGmeantime7HzASD[3,],lwd=2,col='blue',lty=2)
-# lines(times,1000*MEGmeantime7HzASD[4,],lwd=2,col='orange',lty=2)
-spl7aASD <- smooth.spline(times,1000*MEGmeantime7HzASD[1,],df=20)
-lines(spl7aASD$x,spl7aASD$y,col='red',lwd=2,lty=2)
-spl7bASD <- smooth.spline(times,1000*MEGmeantime7HzASD[2,],df=20)
-lines(spl7bASD$x,spl7bASD$y,col='green',lwd=2,lty=2)
-spl7cASD <- smooth.spline(times,1000*MEGmeantime7HzASD[3,],df=20)
-lines(spl7cASD$x,spl7cASD$y,col='blue',lwd=2,lty=2)
-spl7dASD <- smooth.spline(times,1000*MEGmeantime7HzASD[4,],df=20)
-lines(spl7dASD$x,spl7dASD$y,col='orange',lwd=2,lty=2)
-
-# lines(times,1000*MEGmeantime7HzCON[1,],lwd=2,col='red',lty=3)
-# lines(times,1000*MEGmeantime7HzCON[2,],lwd=2,col='green',lty=3)
-# lines(times,1000*MEGmeantime7HzCON[3,],lwd=2,col='blue',lty=3)
-# lines(times,1000*MEGmeantime7HzCON[4,],lwd=2,col='orange',lty=3)
-spl7aCON <- smooth.spline(times,1000*MEGmeantime7HzCON[1,],df=20)
-lines(spl7aCON$x,spl7aCON$y,col='red',lwd=2,lty=3)
-spl7bCON <- smooth.spline(times,1000*MEGmeantime7HzCON[2,],df=20)
-lines(spl7bCON$x,spl7bCON$y,col='green',lwd=2,lty=3)
-spl7cCON <- smooth.spline(times,1000*MEGmeantime7HzCON[3,],df=20)
-lines(spl7cCON$x,spl7cCON$y,col='blue',lwd=2,lty=3)
-spl7dCON <- smooth.spline(times,1000*MEGmeantime7HzCON[4,],df=20)
-lines(spl7dCON$x,spl7dCON$y,col='orange',lwd=2,lty=3)
-
-
-plotlims <- c(-1,8,0,2)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
-ticklocsx <- -1:8    # locations of tick marks on x axis
-ticklocsy <- seq(0,2,1)    # locations of tick marks on y axis
-ticklabelsx <- -1:8        # set labels for x ticks
-ticklabelsy <- ticklocsy    # set labels for y ticks
-plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
-axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
-axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
-mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
-mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
-title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
-title(ylab="Masking ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
-
-lines(spl7b$x,spl7b$y/spl7c$y,col='blue',lwd=2)
-lines(spl7b$x,spl7b$y/spl7d$y,col='orange',lwd=2)
-
-lines(spl7bASD$x,spl7bASD$y/spl7cASD$y,col='blue',lwd=2,lty=2)
-lines(spl7bASD$x,spl7bASD$y/spl7dASD$y,col='orange',lwd=2,lty=2)
-
-lines(spl7bCON$x,spl7bCON$y/spl7cCON$y,col='blue',lwd=2,lty=3)
-lines(spl7bCON$x,spl7bCON$y/spl7dCON$y,col='orange',lwd=2,lty=3)
-
-
-# lines(times,1000*meanspec[1,2,],lwd=2,lty=2,col='red')
-# lines(times,1000*meanspec[2,2,],lwd=2,lty=2,col='green')
-# lines(times,1000*meanspec[3,2,],lwd=2,lty=2,col='blue')
-# lines(times,1000*meanspec[4,2,],lwd=2,lty=2,col='orange')
-
-# text(-0.5,3.8,paste0('N=',length(allRnos)),cex=2)
-# condlist <- c('5Hz target only','5Hz mask only','5Hz mon','5Hz dich','7Hz target only','7Hz mask only','7Hz mon','7Hz dich')
-# if (outputplot>0){legend(0,4,condlist,col=c('red','green','blue','orange'),lty=c(1,1,1,1,2,2,2,2),lwd=2,box.lwd=2)}
 
 dev.off()
+
+
+postscript("timecourse2.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,-3,7)
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+polygon(times[c(1:8008,8008:1)],c(MEGmaskindex5[1,]+MEGmaskindexSE5[1,],MEGmaskindex5[1,8008:1]-MEGmaskindexSE5[1,8008:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8008,8008:1)],c(MEGmaskindex5[2,]+MEGmaskindexSE5[2,],MEGmaskindex5[2,8008:1]-MEGmaskindexSE5[2,8008:1]),col=colpal[3],border=NA)
+
+
+lines(times,MEGmaskindex5[1,],col=colpal[2],lwd=2)
+lines(times,MEGmaskindex5[2,],col=colpal[3],lwd=2)
+}
+if (plotsmoothed==1){
+U <- smooth.spline(times,MEGmaskindex5[1,]+MEGmaskindexSE5[1,],df=20)
+L <- smooth.spline(times,MEGmaskindex5[1,]-MEGmaskindexSE5[1,],df=20)
+polygon(times[c(1:8008,8008:1)],c(U$y,L$y[8008:1]),col=colpal[2],border=NA)
+
+U <- smooth.spline(times,MEGmaskindex5[2,]+MEGmaskindexSE5[2,],df=20)
+L <- smooth.spline(times,MEGmaskindex5[2,]-MEGmaskindexSE5[2,],df=20)
+polygon(times[c(1:8008,8008:1)],c(U$y,L$y[8008:1]),col=colpal[3],border=NA)
+
+for (area in 1:nareas){ 
+L <- smooth.spline(times,MEGmaskindex5[area,1,],df=20)
+lines(L$x,L$y,col=colpal[2],lwd=2)
+L <- smooth.spline(times,MEGmaskindex5[area,2,],df=20)
+lines(L$x,L$y,col=colpal[3],lwd=2)
+}
+}
+
+dev.off()
+
+
+postscript("timecourse3.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,0,0.6)
+ticklocsy <- seq(0,0.6,0.1)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = ticklocsy, side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-0.022,-0.022,0.02,0.02),border=NA,col=rgb(0.5,0.5,0.5))
+
+if (plotsmoothed==0){
+polygon(times[c(1:8008,8008:1)],10*c(MEGmeantime7Hz[2,]+MEGSEtime7Hz[2,],MEGmeantime7Hz[2,8008:1]-MEGSEtime7Hz[2,8008:1]),col=colpal[1],border=NA)
+polygon(times[c(1:8008,8008:1)],10*c(MEGmeantime7Hz[3,]+MEGSEtime7Hz[3,],MEGmeantime7Hz[3,8008:1]-MEGSEtime7Hz[3,8008:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8008,8008:1)],10*c(MEGmeantime7Hz[4,]+MEGSEtime7Hz[4,],MEGmeantime7Hz[4,8008:1]-MEGSEtime7Hz[4,8008:1]),col=colpal[3],border=NA)
+  
+# lines(times,MEGmeantime7Hz[1,],lwd=2,col=colpal[1])
+lines(times,10*MEGmeantime7Hz[2,],lwd=2,col=colpal[1])
+lines(times,10*MEGmeantime7Hz[3,],lwd=2,col=colpal[2])
+lines(times,10*MEGmeantime7Hz[4,],lwd=2,col=colpal[3])
+}
+if (plotsmoothed==1){
+  
+spl7bU <- smooth.spline(times,MEGmeantime7Hz[2,]+MEGSEtime7Hz[2,],df=20)
+spl7bL <- smooth.spline(times,MEGmeantime7Hz[2,]-MEGSEtime7Hz[2,],df=20)
+polygon(times[c(1:8008,8008:1)],c(spl7bU$y,spl7bL$y[8008:1]),col=colpal[1],border=NA)
+
+spl7cU <- smooth.spline(times,MEGmeantime7Hz[3,]+MEGSEtime7Hz[3,],df=20)
+spl7cL <- smooth.spline(times,MEGmeantime7Hz[3,]-MEGSEtime7Hz[3,],df=20)
+polygon(times[c(1:8008,8008:1)],c(spl7cU$y,spl7cL$y[8008:1]),col=colpal[2],border=NA)
+
+spl7dU <- smooth.spline(times,MEGmeantime7Hz[4,]+MEGSEtime7Hz[4,],df=20)
+spl7dL <- smooth.spline(times,MEGmeantime7Hz[4,]-MEGSEtime7Hz[4,],df=20)
+polygon(times[c(1:8008,8008:1)],c(spl7dU$y,spl7dL$y[8008:1]),col=colpal[3],border=NA)
+
+# spl7a <- smooth.spline(times,MEGmeantime7Hz[1,],df=20)
+# lines(spl7a$x,spl7a$y,col=colpal[1],lwd=2)
+  for (area in 1:nareas){ 
+spl7b <- smooth.spline(times,10*MEGmeantime7Hz[area,2,],df=20)
+lines(spl7b$x,spl7b$y,col=colpal[1],lwd=2)
+spl7c <- smooth.spline(times,10*MEGmeantime7Hz[area,3,],df=20)
+lines(spl7c$x,spl7c$y,col=colpal[2],lwd=2)
+spl7d <- smooth.spline(times,10*MEGmeantime7Hz[area,4,],df=20)
+lines(spl7d$x,spl7d$y,col=colpal[3],lwd=2)
+}
+}
+
+dev.off()
+
+postscript("timecourse4.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,-3,6)
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+polygon(times[c(1:8008,8008:1)],c(MEGmaskindex7[1,]+MEGmaskindexSE7[1,],MEGmaskindex7[1,8008:1]-MEGmaskindexSE7[1,8008:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8008,8008:1)],c(MEGmaskindex7[2,]+MEGmaskindexSE7[2,],MEGmaskindex7[2,8008:1]-MEGmaskindexSE7[2,8008:1]),col=colpal[3],border=NA)
+
+lines(times,MEGmaskindex7[1,],col=colpal[2],lwd=2)
+lines(times,MEGmaskindex7[2,],col=colpal[3],lwd=2)
+}
+
+if (plotsmoothed==1){
+U <- smooth.spline(times,MEGmaskindex7[1,]+MEGmaskindexSE7[1,],df=20)
+L <- smooth.spline(times,MEGmaskindex7[1,]-MEGmaskindexSE7[1,],df=20)
+polygon(times[c(1:8008,8008:1)],c(U$y,L$y[8008:1]),col=colpal[2],border=NA)
+
+U <- smooth.spline(times,MEGmaskindex7[2,]+MEGmaskindexSE7[2,],df=20)
+L <- smooth.spline(times,MEGmaskindex7[2,]-MEGmaskindexSE7[2,],df=20)
+polygon(times[c(1:8008,8008:1)],c(U$y,L$y[8008:1]),col=colpal[3],border=NA)
+
+for (area in 1:nareas){
+L <- smooth.spline(times,MEGmaskindex7[area,1,],df=20)
+lines(L$x,L$y,col=colpal[2],lwd=2)
+L <- smooth.spline(times,MEGmaskindex7[area,2,],df=20)
+lines(L$x,L$y,col=colpal[3],lwd=2)
+}
+}
+
+dev.off()
+
+
+# freqlist <- seq(1/6,20,length=ncol(meanspec))
+# 
+# postscript("spectrum.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 10)
+# 
+# plotlims <- c(0,20,0,4)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
+# ticklocsx <- seq(0,20,5)    # locations of tick marks on x axis
+# ticklocsy <- c(0,0.4,0.8,1,2,3,4)    # locations of tick marks on y axis
+# ticklabelsx <- seq(0,20,5)        # set labels for x ticks
+# ticklabelsy <- c(0,0.2,0.4,'','','','')    # set labels for y ticks
+# plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
+# axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)     # plot tick marks (no labels)
+# axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+# mtext(text = ticklabelsx, side = 1, at=ticklocsx)     # add the tick labels
+# mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1) 
+# title(xlab="Frequency (Hz)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
+# title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+# 
+# lines(c(0,20),c(0,0),lty=3)
+# lines(c(0,20),c(1,1),lty=3)
+# lines(c(0,20),c(2,2),lty=3)
+# lines(c(0,20),c(3,3),lty=3)
+# 
+# # lines(c(5,5),c(0,4),col='grey',lwd=2)
+# # lines(c(7,7),c(0,4),col='grey',lwd=2)
+# 
+# polygon(c(1/6,freqlist,20),c(0,100*meanspec[1,],0)+3,border=NA,col=colpal[1])
+# polygon(c(1/6,freqlist,20),c(0,100*meanspec[2,],0)+2,border=NA,col=colpal[1])
+# polygon(c(1/6,freqlist,20),c(0,100*meanspec[3,],0)+1,border=NA,col=colpal[2])
+# polygon(c(1/6,freqlist,20),c(0,100*meanspec[4,],0),border=NA,col=colpal[3])
+# 
+# lines(freqlist,100*meanspec[1,]+3,lwd=2,col='black')
+# lines(freqlist,100*meanspec[2,]+2,lwd=2,col='black')
+# lines(freqlist,100*meanspec[3,]+1,lwd=2,col='black')
+# lines(freqlist,100*meanspec[4,],lwd=2,col='black')
+# 
+# text(20,3.5,'5Hz monocular target',pos=2,cex=1.5)
+# text(20,2.5,'7Hz monocular target',pos=2,cex=1.5)
+# text(20,1.5,'Monocular combination',pos=2,cex=1.5)
+# text(20,0.5,'Dichoptic combination',pos=2,cex=1.5)
+# 
+# dev.off()
+
+
+
+
+
+
+
+
+# 
+# 
+# allresps <- array(0, dim=c(length(d),4,2,9))
+# allspectra <- array(0, dim=c(length(d),4,6006))
+# allwaves <- array(0, dim=c(length(d), 4, 9009))
+# MEGtimecourse7Hz <- array(0, dim=c(length(d),4,8009))
+# MEGtimecourse5Hz <- array(0, dim=c(length(d),4,8009))
+# allRnos <- NULL
+# for (s in 1:length(d)){
+#   allRnos[s] <- substr(d2[s],1,5)
+#   data <- readMat(d[s])
+#   
+#   for (cond in 1:4){
+#       for (t in 1:9){
+#         all1F <- NULL
+#         all2F <- NULL
+#         for (rep in 1:data$trialcounter[1,cond]){
+#           trial <- data$alltrials[cond,rep,]
+# 
+#         sample <- trial[(1+((t-1)*1001)):(t*1001)]
+#         fftsample <- fft(sample)/length(sample)
+# 
+#         all1F[rep] <- fftsample[targetF + 1]
+#         all2F[rep] <- fftsample[maskF + 1]
+#       }
+# 
+#         tempxy <- data.frame(Re(all1F),Im(all1F))
+#         D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+#         i <- which(D<3)
+#         allresps[s,cond,1,t] <- mean(all1F[i])
+# 
+#         tempxy <- data.frame(Re(all2F),Im(all2F))
+#         D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+#         i <- which(D<3)
+#         allresps[s,cond,2,t] <- mean(all2F[i])
+#     }
+#     
+#     meanwave <- colMeans(data$alltrials[cond,1:data$trialcounter[1,cond],])
+#     
+#     sample <- meanwave[1001:7006]
+#     allspectra[s,cond,] <- fft(sample)/length(sample)  
+# 
+#     allwaves[s,cond,] <- meanwave
+#     
+# fspec1 <- NULL
+# fspec2 <- NULL
+# for (t in 1:(length(meanwave)-binwidth)){
+#   spec <- fft(meanwave[t:(t+binwidth-1)])/binwidth
+#   fspec1[t] <- spec[tindex]
+#   fspec2[t] <- spec[mindex]
+# }
+#     MEGtimecourse5Hz[s,cond,] <- fspec1
+#     MEGtimecourse7Hz[s,cond,] <- fspec2
+#     
+#     
+#   }
+# }
+# 
+# save(file='temp/MEGsummary.RData',list=c('allspectra','allresps','allwaves','MEGtimecourse5Hz','MEGtimecourse7Hz','allRnos'))
+# }
+#     
+# if (runcode==1){
+#   
+#   load('temp/MEGsummary.RData')
+#   
+# allresps <- abs(allresps)
+# meanspec <- apply(allresps,2:4,mean)
+# 
+# MEGmeantime5Hz <- matrix(0,nrow=4,ncol=8009) 
+# MEGmeantime7Hz <- matrix(0,nrow=4,ncol=8009) 
+# for (cond in 1:4){
+# MEGmeantime7Hz[cond,] <- apply(abs(MEGtimecourse7Hz[,cond,]),2,mean)
+# MEGmeantime5Hz[cond,] <- apply(abs(MEGtimecourse5Hz[,cond,]),2,mean)
+# }
+# 
+# 
+# qdata <- read.csv('~/Google Drive/Current work/Teaching/MSci project 2021/MSci project questionnaires 2021 (Responses) - Form Responses 1.csv')
+# qgroup <- as.factor(qdata[,5])
+# qRnos <- as.character(qdata[,2])
+# qAges <- qdata[,3]
+# qRnos[20] <- 'R5860'
+# qgroup[20] <- 'Yes'
+# qAges[20] <- 19
+# 
+#   
+# sortedgroups <- NULL
+# for (s in 1:length(allRnos)){sortedgroups[s] <- qgroup[which(qRnos==allRnos[s])]}
+# # sortedgroups now codes 1 = control, 2 = ASC in the order of the MEG data
+# 
+# lowAQ <- abs(apply(abs(allresps[which(sortedgroups==1),,,]),c(2,3,4),mean))
+# highAQ <- abs(apply(abs(allresps[which(sortedgroups==2),,,]),c(2,3,4),mean))
+# 
+# 
+# 
+# 
+# MEGmeantime5HzCON <- matrix(0,nrow=4,ncol=8009) 
+# MEGmeantime7HzCON <- matrix(0,nrow=4,ncol=8009) 
+# MEGmeantime5HzASD <- matrix(0,nrow=4,ncol=8009) 
+# MEGmeantime7HzASD <- matrix(0,nrow=4,ncol=8009) 
+# for (cond in 1:4){
+# MEGmeantime7HzCON[cond,] <- apply(abs(MEGtimecourse7Hz[which(sortedgroups==1),cond,]),2,mean)
+# MEGmeantime5HzCON[cond,] <- apply(abs(MEGtimecourse5Hz[which(sortedgroups==1),cond,]),2,mean)
+# MEGmeantime7HzASD[cond,] <- apply(abs(MEGtimecourse7Hz[which(sortedgroups==2),cond,]),2,mean)
+# MEGmeantime5HzASD[cond,] <- apply(abs(MEGtimecourse5Hz[which(sortedgroups==2),cond,]),2,mean)
+# }
+# 
+# pdf("temp/figures/Fig4.pdf", bg="transparent", height = 10, width = 10)
+# 
+# par(mfrow=c(2,2))
+# 
+# times <- ((1:8009)-500)/1000
+# 
+# plotlims <- c(-1,8,0,30)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
+# ticklocsx <- -1:8    # locations of tick marks on x axis
+# ticklocsy <- seq(0,30,10)    # locations of tick marks on y axis
+# ticklabelsx <- -1:8        # set labels for x ticks
+# ticklabelsy <- ticklocsy    # set labels for y ticks
+# plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
+# axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
+# axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+# mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
+# mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
+# title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
+# title(ylab="Amplitude", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+# 
+# # lines(times,1000*meanspec[1,1,],lwd=2,col=colpal[1])
+# # lines(times,1000*meanspec[2,1,],lwd=2,col='green')
+# # lines(times,1000*meanspec[3,1,],lwd=2,col=colpal[2])
+# # lines(times,1000*meanspec[4,1,],lwd=2,col=colpal[3])
+# 
+# 
+# # lines(times,1000*MEGmeantime5Hz[1,],lwd=2,col=colpal[1])
+# # lines(times,1000*MEGmeantime5Hz[2,],lwd=2,col='green')
+# # lines(times,1000*MEGmeantime5Hz[3,],lwd=2,col=colpal[2])
+# # lines(times,1000*MEGmeantime5Hz[4,],lwd=2,col=colpal[3])
+# spl5a <- smooth.spline(times,1000*MEGmeantime5Hz[1,],df=20)
+# lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
+# spl5b <- smooth.spline(times,1000*MEGmeantime5Hz[2,],df=20)
+# lines(spl5b$x,spl5b$y,col='green',lwd=2)
+# spl5c <- smooth.spline(times,1000*MEGmeantime5Hz[3,],df=20)
+# lines(spl5c$x,spl5c$y,col=colpal[2],lwd=2)
+# spl5d <- smooth.spline(times,1000*MEGmeantime5Hz[4,],df=20)
+# lines(spl5d$x,spl5d$y,col=colpal[3],lwd=2)
+# 
+# # lines(times,1000*MEGmeantime5HzASD[1,],lwd=2,col=colpal[1],lty=2)
+# # lines(times,1000*MEGmeantime5HzASD[2,],lwd=2,col='green',lty=2)
+# # lines(times,1000*MEGmeantime5HzASD[3,],lwd=2,col=colpal[2],lty=2)
+# # lines(times,1000*MEGmeantime5HzASD[4,],lwd=2,col=colpal[3],lty=2)
+# spl5aASD <- smooth.spline(times,1000*MEGmeantime5HzASD[1,],df=20)
+# lines(spl5aASD$x,spl5aASD$y,col=colpal[1],lwd=2,lty=2)
+# spl5bASD <- smooth.spline(times,1000*MEGmeantime5HzASD[2,],df=20)
+# lines(spl5bASD$x,spl5bASD$y,col='green',lwd=2,lty=2)
+# spl5cASD <- smooth.spline(times,1000*MEGmeantime5HzASD[3,],df=20)
+# lines(spl5cASD$x,spl5cASD$y,col=colpal[2],lwd=2,lty=2)
+# spl5dASD <- smooth.spline(times,1000*MEGmeantime5HzASD[4,],df=20)
+# lines(spl5dASD$x,spl5dASD$y,col=colpal[3],lwd=2,lty=2)
+# 
+# # lines(times,1000*MEGmeantime5HzCON[1,],lwd=2,col=colpal[1],lty=3)
+# # lines(times,1000*MEGmeantime5HzCON[2,],lwd=2,col='green',lty=3)
+# # lines(times,1000*MEGmeantime5HzCON[3,],lwd=2,col=colpal[2],lty=3)
+# # lines(times,1000*MEGmeantime5HzCON[4,],lwd=2,col=colpal[3],lty=3)
+# spl5aCON <- smooth.spline(times,1000*MEGmeantime5HzCON[1,],df=20)
+# lines(spl5aCON$x,spl5aCON$y,col=colpal[1],lwd=2,lty=3)
+# spl5bCON <- smooth.spline(times,1000*MEGmeantime5HzCON[2,],df=20)
+# lines(spl5bCON$x,spl5bCON$y,col='green',lwd=2,lty=3)
+# spl5cCON <- smooth.spline(times,1000*MEGmeantime5HzCON[3,],df=20)
+# lines(spl5cCON$x,spl5cCON$y,col=colpal[2],lwd=2,lty=3)
+# spl5dCON <- smooth.spline(times,1000*MEGmeantime5HzCON[4,],df=20)
+# lines(spl5dCON$x,spl5dCON$y,col=colpal[3],lwd=2,lty=3)
+# 
+# 
+# 
+# plotlims <- c(-1,8,0,2)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
+# ticklocsx <- -1:8    # locations of tick marks on x axis
+# ticklocsy <- seq(0,2,1)    # locations of tick marks on y axis
+# ticklabelsx <- -1:8        # set labels for x ticks
+# ticklabelsy <- ticklocsy    # set labels for y ticks
+# plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
+# axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
+# axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+# mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
+# mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
+# title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
+# title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+# 
+# lines(spl5b$x,spl5a$y/spl5c$y,col=colpal[2],lwd=2)
+# lines(spl5b$x,spl5a$y/spl5d$y,col=colpal[3],lwd=2)
+# 
+# lines(spl5bASD$x,spl5aASD$y/spl5cASD$y,col=colpal[2],lwd=2,lty=2)
+# lines(spl5bASD$x,spl5aASD$y/spl5dASD$y,col=colpal[3],lwd=2,lty=2)
+# 
+# lines(spl5bCON$x,spl5aCON$y/spl5cCON$y,col=colpal[2],lwd=2,lty=3)
+# lines(spl5bCON$x,spl5aCON$y/spl5dCON$y,col=colpal[3],lwd=2,lty=3)
+# 
+# 
+# plotlims <- c(-1,8,0,30)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
+# ticklocsx <- -1:8    # locations of tick marks on x axis
+# ticklocsy <- seq(0,30,10)    # locations of tick marks on y axis
+# ticklabelsx <- -1:8        # set labels for x ticks
+# ticklabelsy <- ticklocsy    # set labels for y ticks
+# plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
+# axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
+# axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+# mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
+# mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
+# title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
+# title(ylab="Amplitude", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+# 
+# 
+# # lines(times,1000*MEGmeantime7Hz[1,],lwd=2,col=colpal[1])
+# # lines(times,1000*MEGmeantime7Hz[2,],lwd=2,col='green')
+# # lines(times,1000*MEGmeantime7Hz[3,],lwd=2,col=colpal[2])
+# # lines(times,1000*MEGmeantime7Hz[4,],lwd=2,col=colpal[3])
+# spl7a <- smooth.spline(times,1000*MEGmeantime7Hz[1,],df=20)
+# lines(spl7a$x,spl7a$y,col=colpal[1],lwd=2)
+# spl7b <- smooth.spline(times,1000*MEGmeantime7Hz[2,],df=20)
+# lines(spl7b$x,spl7b$y,col='green',lwd=2)
+# spl7c <- smooth.spline(times,1000*MEGmeantime7Hz[3,],df=20)
+# lines(spl7c$x,spl7c$y,col=colpal[2],lwd=2)
+# spl7d <- smooth.spline(times,1000*MEGmeantime7Hz[4,],df=20)
+# lines(spl7d$x,spl7d$y,col=colpal[3],lwd=2)
+# 
+# # lines(times,1000*MEGmeantime7HzASD[1,],lwd=2,col=colpal[1],lty=2)
+# # lines(times,1000*MEGmeantime7HzASD[2,],lwd=2,col='green',lty=2)
+# # lines(times,1000*MEGmeantime7HzASD[3,],lwd=2,col=colpal[2],lty=2)
+# # lines(times,1000*MEGmeantime7HzASD[4,],lwd=2,col=colpal[3],lty=2)
+# spl7aASD <- smooth.spline(times,1000*MEGmeantime7HzASD[1,],df=20)
+# lines(spl7aASD$x,spl7aASD$y,col=colpal[1],lwd=2,lty=2)
+# spl7bASD <- smooth.spline(times,1000*MEGmeantime7HzASD[2,],df=20)
+# lines(spl7bASD$x,spl7bASD$y,col='green',lwd=2,lty=2)
+# spl7cASD <- smooth.spline(times,1000*MEGmeantime7HzASD[3,],df=20)
+# lines(spl7cASD$x,spl7cASD$y,col=colpal[2],lwd=2,lty=2)
+# spl7dASD <- smooth.spline(times,1000*MEGmeantime7HzASD[4,],df=20)
+# lines(spl7dASD$x,spl7dASD$y,col=colpal[3],lwd=2,lty=2)
+# 
+# # lines(times,1000*MEGmeantime7HzCON[1,],lwd=2,col=colpal[1],lty=3)
+# # lines(times,1000*MEGmeantime7HzCON[2,],lwd=2,col='green',lty=3)
+# # lines(times,1000*MEGmeantime7HzCON[3,],lwd=2,col=colpal[2],lty=3)
+# # lines(times,1000*MEGmeantime7HzCON[4,],lwd=2,col=colpal[3],lty=3)
+# spl7aCON <- smooth.spline(times,1000*MEGmeantime7HzCON[1,],df=20)
+# lines(spl7aCON$x,spl7aCON$y,col=colpal[1],lwd=2,lty=3)
+# spl7bCON <- smooth.spline(times,1000*MEGmeantime7HzCON[2,],df=20)
+# lines(spl7bCON$x,spl7bCON$y,col='green',lwd=2,lty=3)
+# spl7cCON <- smooth.spline(times,1000*MEGmeantime7HzCON[3,],df=20)
+# lines(spl7cCON$x,spl7cCON$y,col=colpal[2],lwd=2,lty=3)
+# spl7dCON <- smooth.spline(times,1000*MEGmeantime7HzCON[4,],df=20)
+# lines(spl7dCON$x,spl7dCON$y,col=colpal[3],lwd=2,lty=3)
+# 
+# 
+# plotlims <- c(-1,8,0,2)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
+# ticklocsx <- -1:8    # locations of tick marks on x axis
+# ticklocsy <- seq(0,2,1)    # locations of tick marks on y axis
+# ticklabelsx <- -1:8        # set labels for x ticks
+# ticklabelsy <- ticklocsy    # set labels for y ticks
+# plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
+# axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2) 
+# axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+# mtext(text = ticklabelsx, side = 1, at=ticklocsx) 
+# mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1)  
+# title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
+# title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+# 
+# lines(spl7b$x,spl7b$y/spl7c$y,col=colpal[2],lwd=2)
+# lines(spl7b$x,spl7b$y/spl7d$y,col=colpal[3],lwd=2)
+# 
+# lines(spl7bASD$x,spl7bASD$y/spl7cASD$y,col=colpal[2],lwd=2,lty=2)
+# lines(spl7bASD$x,spl7bASD$y/spl7dASD$y,col=colpal[3],lwd=2,lty=2)
+# 
+# lines(spl7bCON$x,spl7bCON$y/spl7cCON$y,col=colpal[2],lwd=2,lty=3)
+# lines(spl7bCON$x,spl7bCON$y/spl7dCON$y,col=colpal[3],lwd=2,lty=3)
+# 
+# 
+# # lines(times,1000*meanspec[1,2,],lwd=2,lty=2,col=colpal[1])
+# # lines(times,1000*meanspec[2,2,],lwd=2,lty=2,col='green')
+# # lines(times,1000*meanspec[3,2,],lwd=2,lty=2,col=colpal[2])
+# # lines(times,1000*meanspec[4,2,],lwd=2,lty=2,col=colpal[3])
+# 
+# # text(-0.5,3.8,paste0('N=',length(allRnos)),cex=2)
+# # condlist <- c('5Hz target only','5Hz mask only','5Hz mon','5Hz dich','7Hz target only','7Hz mask only','7Hz mon','7Hz dich')
+# # if (outputplot>0){legend(0,4,condlist,col=c(colpal[1],'green',colpal[2],colpal[3]),lty=c(1,1,1,1,2,2,2,2),lwd=2,box.lwd=2)}
+# 
+# dev.off()
+
+   PostScriptTrace(paste('timecourse1.ps',sep=''))
+  e6 <- readPicture('timecourse1.ps.xml')
+  for (n in 1:length(e6@paths)){
+    temp <- class(e6@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e6@paths[n]$path@rgb))<765){e6@paths[n]$path@rgb <- addalpha(e6@paths[n]$path@rgb,alpha=0.2)}}}
+ 
+   PostScriptTrace(paste('timecourse2.ps',sep=''))
+  e7 <- readPicture('timecourse2.ps.xml')
+  for (n in 1:length(e7@paths)){
+    temp <- class(e7@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e7@paths[n]$path@rgb))<765){e7@paths[n]$path@rgb <- addalpha(e7@paths[n]$path@rgb,alpha=0.2)}}}
+
+     PostScriptTrace(paste('timecourse3.ps',sep=''))
+  e8 <- readPicture('timecourse3.ps.xml')
+  for (n in 1:length(e8@paths)){
+    temp <- class(e8@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e8@paths[n]$path@rgb))<765){e8@paths[n]$path@rgb <- addalpha(e8@paths[n]$path@rgb,alpha=0.2)}}}
+
+     PostScriptTrace(paste('timecourse4.ps',sep=''))
+  e9 <- readPicture('timecourse4.ps.xml')
+  for (n in 1:length(e9@paths)){
+    temp <- class(e9@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e9@paths[n]$path@rgb))<765){e9@paths[n]$path@rgb <- addalpha(e9@paths[n]$path@rgb,alpha=0.2)}}}
+  
+  
+  
+  pdf('temp/figures/Fig4.pdf', bg="transparent", height = 12, width = 12)
+  par(mar=c(0.1,0.1,0.1,0.1))
+  plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=c(0,1), ylim=c(0,1)) 
+
+  grid.picture(e6,x=0.25,y=0.75,width=0.5,height=1)
+  grid.picture(e7,x=0.75,y=0.75,width=0.5,height=1)
+  grid.picture(e8,x=0.25,y=0.25,width=0.5,height=1)
+  grid.picture(e9,x=0.75,y=0.25,width=0.5,height=1)
+  
+  # text(-0.02,1,'(a)',pos=4,cex=2)
+  # text(-0.02,0.45,'(b)',pos=4,cex=2)
+  # text(0.515,1,'(c)',pos=4,cex=2)
+  # text(0.515,0.46,'(d)',pos=4,cex=2)
+  # text(0.785,1,'(e)',pos=4,cex=2)
+  # text(0.785,0.46,'(f)',pos=4,cex=2)
+  # 
+  # text(-0.02,0.61,'5Hz',pos=4,cex=2)
+  # text(-0.02,0.89,'7Hz',pos=4,cex=2)
+
+  dev.off()
+  
+  file.remove(c('timecourse1.ps','timecourse2.ps','timecourse3.ps','timecourse4.ps'))
+  file.remove(c('timecourse1.ps.xml','timecourse2.ps.xml','timecourse3.ps.xml','timecourse4.ps.xml'))
+
+  
 }
 
 ```
