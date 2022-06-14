@@ -1,7 +1,7 @@
 ---
 title: 'The Dynamics of Normalization Reweighting (target journal: Neuron)'
 author: Daniel H. Baker, Daniela Marinova, Richard Aveyard, Lydia Hargreaves, Alice
-  Renton, Ruby Castellani, Phoebe Hall, Miriam Harmens, Georgia Holroyd, Dorian Manning,
+  Renton, Ruby Castellani, Phoebe Hall, Miriam Harmens, Georgia Holroyd,
   Beth Nicholson, Emily Williams, Hannah M. Hobson & Alex R. Wade
 date: "`r Sys.Date()`"
 output:
@@ -15,10 +15,13 @@ output:
 
 ```{r setup, include=FALSE}
 
-runcode <- 1  # this flag chooses whether to run the underlying analysis code (1), or just load in the figures from the last time this was run (0)
-processraw <- 1  # this flag determines whether the raw data are downloaded from OSF and processed - this will require ~30GB of hard drive space and take several hours
+processdata <- 0  # this flag determines the amount of processing, with 4 levels:
+# 0 - do no processing, generate the pdf using existing versions of all scripts
+# 1 - generate figures using the processed group data (requires XGB of storage)
+# 2 - download processed individual data and analyse (requires XGB of storage)
+# 3 - download all raw data and analyse (requires XGB of storage)
 
-plotsmoothed <- 0 # either plot the raw data (0), or a smoothed spline (1)
+plotsmoothed <- 1 # either plot the raw data (0), or a smoothed spline (1)
 
 # reasonably compact code to check which packages are installed, install the missing ones, and activate all
 packagelist <- c('knitr','remotes','tictoc','R.matlab','bookdown','grImport','tiff') # list of CRAN packages
@@ -119,7 +122,15 @@ tindex <- (10*targetF) + 1
 mindex <- (10*maskF) + 1
 duration <- 14
 
-if (processraw==1){
+    binwidth <- 1000
+    findex <- 1 + targetF*(binwidth/1000)
+    findex[2] <- 1 + maskF*(binwidth/1000)
+    findex[3] <- 1 + 2*targetF*(binwidth/1000)
+    findex[4] <- 1 + 2*maskF*(binwidth/1000)
+    
+condlist <- c(6,8,13)
+
+if (processdata>2){
   
 osfnode <- 'y4n5k'    # this is where the pilot data are stored
 osfproject <- osf_retrieve_node(osfnode)
@@ -155,13 +166,13 @@ for (s in 1:101) {
 
     condcounter <- (1:20) * 0
     allsamples <- array(0, dim = c(10,20,64,duration*samplerate))
-    if (s < 10){untar(paste(datadir, 'S0', s, '.tar', sep = ''), exdir = tempdir)}
-    if (s > 9){untar(paste(datadir, 'S', s, '.tar', sep = ''), exdir = tempdir)}
+    if (s < 10){d <- dir(path = paste0(tempdir,'S0',s), pattern='*.csv.gz',full.names=TRUE)}
+    if (s > 9){d <- dir(path = paste0(tempdir,'S',s), pattern='*.csv.gz',full.names=TRUE)}
     
     d <- dir(path = tempdir, pattern = '*.csv.gz')
     
     for (block in 1:length(d)) {
-      EEGdata <- read.csv(paste(tempdir, d[block], sep = ''), header = TRUE)
+      EEGdata <- read.csv(d[block], header = TRUE)
       
       electrodes <- colnames(EEGdata)
       targetchannels <- match(targetelectrodes, electrodes) - 2
@@ -169,12 +180,11 @@ for (s in 1:101) {
       # epoch the data, Fourier transform and store
       triggertimes <- (1:40) * 0
       counter <- 0
-      for (n in 1000:nrow(EEGdata)) {    # ignore triggers starting in the first 1000ms that generate an error
-      for (n in 1:nrow(EEGdata)) {
+      for (n in 1500:nrow(EEGdata)) {    # ignore triggers starting in the first 1000ms that generate an error
         if (EEGdata$Trigger[n] %in% legaltriggers) {
           counter <- counter + 1
           triggertimes[counter] <- n
-        }
+      }
       }
       
       for (tr in 1:counter) {
@@ -182,13 +192,14 @@ for (s in 1:101) {
         condcounter[cond] <- condcounter[cond] + 1
         for (ch in 1:64){
         temp <- as.matrix(EEGdata[(triggertimes[tr]:(triggertimes[tr] + samplerate * duration - 1))-1499, ch + 2])
-        temp <- temp - mean(temp[501:1500])   # baseline subtraction to remove DC component
+        temp <- temp - mean(temp[501:1500])
         allsamples[condcounter[cond],cond,ch,1:(1000*duration)] <- as.vector(rowMeans(temp))
         }
       }
     }
 allsamples[which(is.na(allsamples))] <- 0     # remove any NaN values
 meanwaveforms <- array(0,dim=c(14,64,14000))
+trialsincluded <- matrix(0,nrow=14,ncol=64)
     for (cond in 1:14){
       for (ch in 1:64){
         temp <- allsamples[1:condcounter[cond],cond,ch,]
@@ -207,351 +218,618 @@ meanwaveforms <- array(0,dim=c(14,64,14000))
       i2 <- (D<3)
       i <- which((i1*i2)>0)
         meanwaveforms[cond,ch,] <- colMeans(temp[i,])
+        trialsincluded[cond,ch] <- length(i)
       }
       }
     }
     
-     save(file = paste0('temp/VilidaiteProcessed/V',subjcounter,'processed.RData'), list = c('meanwaveforms','electrodes'))
+     save(file = paste0('temp/VilidaiteProcessed/V',subjcounter,'processed.RData'), list = c('meanwaveforms','electrodes','trialsincluded'))
      
-    for (block in 1:length(d)){file.remove(paste0(tempdir, d[block]))}
+    for (block in 1:length(d)){file.remove(d[block])}
 
   }
 }
 }
 }
-}
 
-if (runcode==1){
-#   d <- dir('temp/VilidaiteProcessed/')
-#   
-#   allwaves <- array(0,dim=c(length(d),14,64,14000))
-#   for (s in 1:length(d)){
-#     load(paste0('temp/VilidaiteProcessed/',d[s]))
-#     allwaves[s,,,] <- meanwaveforms
-#   }
-#   
-#   meanwaveforms <- array(0,dim=c(14,64,14000))
-#   alltarget <- matrix(0,nrow=14,ncol=64)
-#   allmask <- matrix(0,nrow=14,ncol=64)
-#     for (cond in 1:14){
-#       for (ch in 1:64){
-#         temp <- allwaves[,cond,ch,]
-#         allspec <- matrix(0,nrow=length(d),ncol=10000)
-#         for (subj in 1:length(d)){
-#           allspec[subj,] <- fft(temp[subj,2001:12000])/10000
-#         }
-#         targetresps <- allspec[,tindex]
-#         maskresps <- allspec[,mindex]
-#       if (sum(abs(targetresps))>0){  
-#       tempxy <- data.frame(Re(targetresps),Im(targetresps))
-#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-#       i1 <- (D<3)
-#       tempxy <- data.frame(Re(maskresps),Im(maskresps))
-#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-#       i2 <- (D<3)
-#       i <- which((i1*i2)>0)
-#         meanwaveforms[cond,ch,] <- colMeans(temp[i,])
-#       }
-#         spec <- fft(meanwaveforms[cond,ch,2001:12000])/10000
-#         alltarget[cond,ch] <- spec[tindex]
-#         allmask[cond,ch] <- spec[mindex]
-#       }
-#     }
-#   
-# }
-# 
-# targetchannels <- match(targetelectrodes, electrodes) - 2
-# 
-# elecave <- colMeans(meanwaveforms[6,targetchannels,])
-# binwidth <- 1000
-# f1 <- 7
-# tindex <- 1 + f1*(binwidth/1000)
-# fspec <- elecave*0
-# for (t in 1:(length(elecave)-binwidth)){
-#   temp <- elecave[t:(t+binwidth-1)]
-#   spec <- fft(temp)/binwidth
-#   fspec[t] <- abs(spec[tindex])
-# }
-# elecave <- colMeans(meanwaveforms[13,targetchannels,])
-# binwidth <- 1000
-# f1 <- 7
-# tindex <- 1 + f1*(binwidth/1000)
-# fspec2 <- elecave*0
-# for (t in 1:(length(elecave)-binwidth)){
-#   temp <- elecave[t:(t+binwidth-1)]
-#   spec <- fft(temp)/binwidth
-#   fspec2[t] <- abs(spec[tindex])
-# }
-# 
-# times <- -499:13500
-# plot(times,fspec,type='l',col=colpal[1])
-# lines(times,fspec2,col='green')
-#   d <- dir('temp/VilidaiteProcessed/')
-#   
-#   allwaves <- array(0,dim=c(length(d),14,64,14000))
-#   for (s in 1:length(d)){
-#     load(paste0('temp/VilidaiteProcessed/',d[s]))
-#     allwaves[s,,,] <- meanwaveforms
-#   }
-#   
-#   meanwaveforms <- array(0,dim=c(14,64,14000))
-#   alltarget <- matrix(0,nrow=14,ncol=64)
-#   allmask <- matrix(0,nrow=14,ncol=64)
-#     for (cond in 1:14){
-#       for (ch in 1:64){
-#         temp <- allwaves[,cond,ch,]
-#         allspec <- matrix(0,nrow=length(d),ncol=10000)
-#         for (subj in 1:length(d)){
-#           allspec[subj,] <- fft(temp[subj,2001:12000])/10000
-#         }
-#         targetresps <- allspec[,tindex]
-#         maskresps <- allspec[,mindex]
-#       if (sum(abs(targetresps))>0){  
-#       tempxy <- data.frame(Re(targetresps),Im(targetresps))
-#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-#       i1 <- (D<3)
-#       tempxy <- data.frame(Re(maskresps),Im(maskresps))
-#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-#       i2 <- (D<3)
-#       i <- which((i1*i2)>0)
-#         meanwaveforms[cond,ch,] <- colMeans(temp[i,])
-#       }
-#         spec <- fft(meanwaveforms[cond,ch,2001:12000])/10000
-#         alltarget[cond,ch] <- spec[tindex]
-#         allmask[cond,ch] <- spec[mindex]
-#       }
-#     }
-#   
-# }
-# 
-# targetchannels <- match(targetelectrodes, electrodes) - 2
-# 
-# elecave <- colMeans(meanwaveforms[6,targetchannels,])
-# binwidth <- 1000
-# f1 <- 7
-# tindex <- 1 + f1*(binwidth/1000)
-# fspec <- elecave*0
-# for (t in 1:(length(elecave)-binwidth)){
-#   temp <- elecave[t:(t+binwidth-1)]
-#   spec <- fft(temp)/binwidth
-#   fspec[t] <- abs(spec[tindex])
-# }
-# elecave <- colMeans(meanwaveforms[13,targetchannels,])
-# binwidth <- 1000
-# f1 <- 7
-# tindex <- 1 + f1*(binwidth/1000)
-# fspec2 <- elecave*0
-# for (t in 1:(length(elecave)-binwidth)){
-#   temp <- elecave[t:(t+binwidth-1)]
-#   spec <- fft(temp)/binwidth
-#   fspec2[t] <- abs(spec[tindex])
-# }
-# 
-# times <- -499:13500
-# plot(times,fspec,type='l',col=colpal[1])
-# lines(times,fspec2,col='green')
-
-
-
-
-# all electrodes, condition 6 @ 7Hz
-# all electrodes, condition 8 @ 5Hz
-# target electrodes, conditions 1-14 for CRF, 5&7Hz
-# target electrodes, full timecourse at 5 & 7Hz, conditions 6, 8, 13
-# allwaves dimensions: 67 x 14 x 64 x 14000
-
-
-# temp <- allwaves[,6,,2001:12000]
-# meantemp <- apply(allwaves,2:3,mean)
-
-# temp <- allwaves[,6,,2001:12000]
-# meantemp <- apply(allwaves,2:3,mean)
-
-f1 <- 7
-f2 <- 5
-    binwidth <- 1000
-    tindex <- 1 + f1*(binwidth/1000)
-    mindex <- 1 + f2*(binwidth/1000)
-    tindex2 <- 1 + 2*f1*(binwidth/1000)
-    mindex2 <- 1 + 2*f2*(binwidth/1000)
-    
-condlist <- c(6,8,13)
+if (processdata>1){
 
 d <- dir(path = 'temp/VilidaiteProcessed', pattern = '*.RData', full.names=TRUE)
-EEGtimecourse5Hz <- array(0,dim=c(length(d),3,13000))
-EEGtimecourse7Hz <- array(0,dim=c(length(d),3,13000))
-EEGtimecourse10Hz <- array(0,dim=c(length(d),3,13000))
-EEGtimecourse14Hz <- array(0,dim=c(length(d),3,13000))
+EEGtimecourse <- array(0,dim=c(length(d),length(findex),3,13000))
+EEGspectra <- array(0,dim=c(length(d),3,20*10))
+EEGscalpresps <- array(0,dim=c(length(d),4,14,64))
+EEGallconds <- array(0,dim=c(length(d),4,14))
 
 for (s in 1:length(d)){
   load(d[s])
   targetchannels <- match(targetelectrodes, electrodes) - 2
+  
+  for (cond in 1:14){
+    temp <- colMeans(meanwaveforms[cond,targetchannels,],na.rm=TRUE)
+        nainds <- which(is.na(temp))   # find occasional NaN values in the waveform
+    temp[nainds] <- 0   # replace with zeros
+    spec <- fft(temp[2501:12500])/10000
+    EEGallconds[s,1,cond] <- spec[1+(10*targetF)]
+    EEGallconds[s,2,cond] <- spec[1+(10*maskF)]
+    EEGallconds[s,3,cond] <- spec[1+(2*10*targetF)]
+    EEGallconds[s,4,cond] <- spec[1+(2*10*maskF)]
+  }
   for (cond in 1:3){
     temp <- colMeans(meanwaveforms[condlist[cond],targetchannels,],na.rm=TRUE)
     nainds <- which(is.na(temp))   # find occasional NaN values in the waveform
     temp[nainds] <- 0   # replace with zeros
 
-fspec1 <- NULL
-fspec2 <- NULL
-fspec3 <- NULL
-fspec4 <- NULL
+    spec <- fft(temp[2501:12500])/10000
+    EEGspectra[s,cond,] <- spec[1:(20*10)]
+    
 for (t in 1:(14000-binwidth)){
   spec <- fft(temp[t:(t+binwidth-1)])/binwidth
-  fspec1[t] <- spec[tindex]
-  fspec2[t] <- spec[mindex]
-  fspec3[t] <- spec[tindex2]
-  fspec4[t] <- spec[mindex2]
-  
+  for (f in 1:length(findex)){
+  EEGtimecourse[s,f,cond,t] <- spec[findex[f]]
+  }
 }
-    EEGtimecourse5Hz[s,cond,] <- fspec1
-    EEGtimecourse7Hz[s,cond,] <- fspec2
-    EEGtimecourse10Hz[s,cond,] <- fspec3
-    EEGtimecourse14Hz[s,cond,] <- fspec4
-
   } 
   
+for (cond in 1:14){
+  for (ch in 1:64){
+     temp <- meanwaveforms[cond,ch,]
+    nainds <- which(is.na(temp))   # find occasional NaN values in the waveform
+    temp[nainds] <- 0   # replace with zeros
+   spec <- fft(temp[2501:12500])/10000
+   EEGscalpresps[s,1,cond,ch] <- spec[(targetF*10)+1]
+   EEGscalpresps[s,2,cond,ch] <- spec[(maskF*10)+1]
+   EEGscalpresps[s,3,cond,ch] <- spec[(2*targetF*10)+1]
+   EEGscalpresps[s,4,cond,ch] <- spec[(2*maskF*10)+1]
+  }
+}  
+  
+  
+  
 }
 
-save(file='temp/Pilotsummary.RData',list=c('EEGtimecourse5Hz','EEGtimecourse7Hz','EEGtimecourse10Hz','EEGtimecourse14Hz','electrodes'))
+save(file='temp/Pilotsummary.RData',list=c('EEGtimecourse','electrodes','EEGscalpresps','EEGspectra','EEGallconds'))
+}
 
+if (processdata>0){
+  
 load('temp/Pilotsummary.RData')
-EEGmeantime5Hz <- matrix(0,nrow=3,ncol=13000)
-EEGmeantime7Hz <- matrix(0,nrow=3,ncol=13000)
-EEGmeantime10Hz <- matrix(0,nrow=3,ncol=13000)
-EEGmeantime14Hz <- matrix(0,nrow=3,ncol=13000)
+nsubjs <- dim(EEGtimecourse)[1]
+EEGmeantimes <- array(0,dim=c(length(findex),3,13000))
+EEGSEtimes <- array(0,dim=c(length(findex)+1,3,13000))
+EEGmaskindices <- array(0,dim=c(length(findex)+1,13000))
+EEGmaskSE <- array(0,dim=c(length(findex)+1,13000))
+EEGmeanscalp <- abs(apply(abs(EEGscalpresps),2:4,mean))
+EEGmeanspec <- abs(apply(abs(EEGspectra),2:3,mean))
+EEGmeanconds <- apply(abs(EEGallconds),2:3,mean)
+EEGcondsSE <- apply(abs(EEGallconds),2:3,sd)/sqrt(nsubjs)
 
+for (f in 1:length(findex)){
 for (cond in 1:3){
-EEGmeantime5Hz[cond,] <- apply(abs(EEGtimecourse5Hz[,cond,]),2,mean,na.rm=TRUE)
-EEGmeantime7Hz[cond,] <- apply(abs(EEGtimecourse7Hz[,cond,]),2,mean,na.rm=TRUE)
-EEGmeantime10Hz[cond,] <- apply(abs(EEGtimecourse10Hz[,cond,]),2,mean,na.rm=TRUE)
-EEGmeantime14Hz[cond,] <- apply(abs(EEGtimecourse14Hz[,cond,]),2,mean,na.rm=TRUE)
+EEGmeantimes[f,cond,] <- apply(abs(EEGtimecourse[,f,cond,]),2,mean,na.rm=TRUE)
+EEGSEtimes[f,cond,] <- apply(abs(EEGtimecourse[,f,cond,]),2,sd,na.rm=TRUE)/sqrt(nsubjs)
+}}
+
+
+EEGmaskindices[1,] <- colMeans(20*log10(abs(EEGtimecourse[,1,1,])/abs(EEGtimecourse[,1,3,])))
+EEGmaskindices[2,] <- colMeans(20*log10(abs(EEGtimecourse[,2,2,])/abs(EEGtimecourse[,2,3,])))
+EEGmaskindices[3,] <- colMeans(20*log10(abs(EEGtimecourse[,3,1,])/abs(EEGtimecourse[,3,3,])))
+EEGmaskindices[4,] <- colMeans(20*log10(abs(EEGtimecourse[,4,2,])/abs(EEGtimecourse[,4,3,])))
+
+
+meanindices <- (20*log10(abs(EEGtimecourse[,1,1,])/abs(EEGtimecourse[,1,3,])) + 20*log10(abs(EEGtimecourse[,2,2,])/abs(EEGtimecourse[,2,3,])) + 20*log10(abs(EEGtimecourse[,3,1,])/abs(EEGtimecourse[,3,3,])) + 20*log10(abs(EEGtimecourse[,4,2,])/abs(EEGtimecourse[,4,3,])))/4
+EEGmaskindices[5,] <- colMeans(meanindices)
+
+
+EEGmaskSE[1,] <- apply(20*log10(abs(EEGtimecourse[,1,1,])/abs(EEGtimecourse[,1,3,])),2,sd)/sqrt(nsubjs)
+EEGmaskSE[2,] <- apply(20*log10(abs(EEGtimecourse[,2,2,])/abs(EEGtimecourse[,2,3,])),2,sd)/sqrt(nsubjs)
+EEGmaskSE[3,] <- apply(20*log10(abs(EEGtimecourse[,3,1,])/abs(EEGtimecourse[,3,3,])),2,sd)/sqrt(nsubjs)
+EEGmaskSE[4,] <- apply(20*log10(abs(EEGtimecourse[,4,2,])/abs(EEGtimecourse[,4,3,])),2,sd)/sqrt(nsubjs)
+EEGmaskSE[5,] <- apply(meanindices,2,sd)/sqrt(nsubjs)
+
+
+times <- (-999:12000)/1000
+
+postscript("timecourse1.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,12,0,1)
+ticklocsx <- c(-1,seq(0,12,2))    # locations of tick marks on y axis
+ticklocsy <- seq(0,1,0.2)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = seq(0,12,2), side = 1, at=seq(0,12,2))
+mtext(text = ticklocsy, side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,11,11,0),c(-0.035,-0.035,0.04,0.04),border=NA,col=rgb(0.5,0.5,0.5))
+
+if (plotsmoothed==0){
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[1,1,]+EEGSEtimes[1,1,],EEGmeantimes[1,1,13000:1]-EEGSEtimes[1,1,13000:1]),col=colpal[1],border=NA)
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[1,2,]+EEGSEtimes[1,2,],EEGmeantimes[1,2,13000:1]-EEGSEtimes[1,2,13000:1]),col='grey',border=NA)
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[1,3,]+EEGSEtimes[1,3,],EEGmeantimes[1,3,13000:1]-EEGSEtimes[1,3,13000:1]),col=colpal[2],border=NA)
+
+lines(times,EEGmeantimes[1,1,],col=colpal[1])
+lines(times,EEGmeantimes[1,2,],col='grey')
+lines(times,EEGmeantimes[1,3,],col=colpal[2])
+}
+if (plotsmoothed==1){
+  
+spl5aU <- smooth.spline(times,EEGmeantimes[1,1,]+EEGSEtimes[1,1,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[1,1,]-EEGSEtimes[1,1,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[1],border=NA)
+
+spl5aU <- smooth.spline(times,EEGmeantimes[1,2,]+EEGSEtimes[1,2,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[1,2,]-EEGSEtimes[1,2,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col='grey',border=NA)
+
+spl5aU <- smooth.spline(times,EEGmeantimes[1,3,]+EEGSEtimes[1,3,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[1,3,]-EEGSEtimes[1,3,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[2],border=NA)
+
+spl5a <- smooth.spline(times,EEGmeantimes[1,1,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
+spl5a <- smooth.spline(times,EEGmeantimes[1,2,],df=20)
+lines(spl5a$x,spl5a$y,col='grey',lwd=2)
+spl5a <- smooth.spline(times,EEGmeantimes[1,3,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
+}
+text(10,0.95,'7Hz',cex=2)
+
+dev.off()
+
+postscript("timecourse2.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = seq(0,12,2), side = 1, at=seq(0,12,2))
+mtext(text = ticklocsy, side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,11,11,0),c(-0.035,-0.035,0.04,0.04),border=NA,col=rgb(0.5,0.5,0.5))
+
+if (plotsmoothed==0){
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[2,2,]+EEGSEtimes[2,2,],EEGmeantimes[2,2,13000:1]-EEGSEtimes[2,2,13000:1]),col=colpal[1],border=NA)
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[2,1,]+EEGSEtimes[2,1,],EEGmeantimes[2,1,13000:1]-EEGSEtimes[2,1,13000:1]),col='grey',border=NA)
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[2,3,]+EEGSEtimes[2,3,],EEGmeantimes[2,3,13000:1]-EEGSEtimes[2,3,13000:1]),col=colpal[2],border=NA)
+
+lines(times,EEGmeantimes[2,2,],col=colpal[1])
+lines(times,EEGmeantimes[2,1,],col='grey')
+lines(times,EEGmeantimes[2,3,],col=colpal[2])
+}
+if (plotsmoothed==1){
+  
+spl5aU <- smooth.spline(times,EEGmeantimes[2,2,]+EEGSEtimes[2,2,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[2,2,]-EEGSEtimes[2,2,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[1],border=NA)
+
+spl5aU <- smooth.spline(times,EEGmeantimes[2,1,]+EEGSEtimes[2,1,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[2,1,]-EEGSEtimes[2,1,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col='grey',border=NA)
+
+spl5aU <- smooth.spline(times,EEGmeantimes[2,3,]+EEGSEtimes[2,3,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[2,3,]-EEGSEtimes[2,3,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[2],border=NA)
+
+spl5a <- smooth.spline(times,EEGmeantimes[2,2,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
+spl5a <- smooth.spline(times,EEGmeantimes[2,1,],df=20)
+lines(spl5a$x,spl5a$y,col='grey',lwd=2)
+spl5a <- smooth.spline(times,EEGmeantimes[2,3,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
+}
+text(10,0.95,'5Hz',cex=2)
+
+dev.off()
+
+postscript("timecourse3.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = seq(0,12,2), side = 1, at=seq(0,12,2))
+mtext(text = ticklocsy, side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,11,11,0),c(-0.035,-0.035,0.04,0.04),border=NA,col=rgb(0.5,0.5,0.5))
+
+if (plotsmoothed==0){
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[3,1,]+EEGSEtimes[3,1,],EEGmeantimes[3,1,13000:1]-EEGSEtimes[3,1,13000:1]),col=colpal[1],border=NA)
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[3,2,]+EEGSEtimes[3,2,],EEGmeantimes[3,2,13000:1]-EEGSEtimes[3,2,13000:1]),col='grey',border=NA)
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[3,3,]+EEGSEtimes[3,3,],EEGmeantimes[3,3,13000:1]-EEGSEtimes[3,3,13000:1]),col=colpal[2],border=NA)
+
+lines(times,EEGmeantimes[3,1,],col=colpal[1])
+lines(times,EEGmeantimes[3,2,],col='grey')
+lines(times,EEGmeantimes[3,3,],col=colpal[2])
+}
+if (plotsmoothed==1){
+  
+spl5aU <- smooth.spline(times,EEGmeantimes[3,1,]+EEGSEtimes[3,1,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[3,1,]-EEGSEtimes[3,1,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[1],border=NA)
+
+spl5aU <- smooth.spline(times,EEGmeantimes[3,2,]+EEGSEtimes[3,2,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[3,2,]-EEGSEtimes[3,2,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col='grey',border=NA)
+
+spl5aU <- smooth.spline(times,EEGmeantimes[3,3,]+EEGSEtimes[3,3,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[3,3,]-EEGSEtimes[3,3,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[2],border=NA)
+
+spl5a <- smooth.spline(times,EEGmeantimes[3,1,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
+spl5a <- smooth.spline(times,EEGmeantimes[3,2,],df=20)
+lines(spl5a$x,spl5a$y,col='grey',lwd=2)
+spl5a <- smooth.spline(times,EEGmeantimes[3,3,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
+}
+text(10,0.95,'14Hz',cex=2)
+
+dev.off()
+
+postscript("timecourse4.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = seq(0,12,2), side = 1, at=seq(0,12,2))
+mtext(text = ticklocsy, side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,11,11,0),c(-0.035,-0.035,0.04,0.04),border=NA,col=rgb(0.5,0.5,0.5))
+
+if (plotsmoothed==0){
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[4,2,]+EEGSEtimes[4,2,],EEGmeantimes[4,2,13000:1]-EEGSEtimes[4,2,13000:1]),col=colpal[1],border=NA)
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[4,1,]+EEGSEtimes[4,1,],EEGmeantimes[4,1,13000:1]-EEGSEtimes[4,1,13000:1]),col='grey',border=NA)
+polygon(times[c(1:13000,13000:1)],c(EEGmeantimes[4,3,]+EEGSEtimes[4,3,],EEGmeantimes[4,3,13000:1]-EEGSEtimes[4,3,13000:1]),col=colpal[2],border=NA)
+
+lines(times,EEGmeantimes[4,2,],col=colpal[1])
+lines(times,EEGmeantimes[4,1,],col='grey')
+lines(times,EEGmeantimes[4,3,],col=colpal[2])
+}
+if (plotsmoothed==1){
+  
+spl5aU <- smooth.spline(times,EEGmeantimes[4,2,]+EEGSEtimes[4,2,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[4,2,]-EEGSEtimes[4,2,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[1],border=NA)
+
+spl5aU <- smooth.spline(times,EEGmeantimes[4,1,]+EEGSEtimes[4,1,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[4,1,]-EEGSEtimes[4,1,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col='grey',border=NA)
+
+spl5aU <- smooth.spline(times,EEGmeantimes[4,3,]+EEGSEtimes[4,3,],df=20)
+spl5aL <- smooth.spline(times,EEGmeantimes[4,3,]-EEGSEtimes[4,3,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[2],border=NA)
+
+spl5a <- smooth.spline(times,EEGmeantimes[4,2,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
+spl5a <- smooth.spline(times,EEGmeantimes[4,1,],df=20)
+lines(spl5a$x,spl5a$y,col='grey',lwd=2)
+spl5a <- smooth.spline(times,EEGmeantimes[4,3,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
+}
+text(10,0.95,'10Hz',cex=2)
+
+dev.off()
+
+
+postscript("suppression.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,12,-3,6)
+ticklocsx <- c(-1,seq(0,12,2))    # locations of tick marks on y axis
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = seq(0,12,2), side = 1, at=seq(0,12,2))
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,11,11,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,12),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+  
+# for (f in 1:4){
+# polygon(times[c(1:13000,13000:1)],c(EEGmaskindices[f,]+EEGmaskSE[f,],EEGmaskindices[f,13000:1]-EEGmaskSE[f,13000:1]),col=colpal[f+1],border=NA)
+# }
+  polygon(times[c(1:13000,13000:1)],c(EEGmaskindices[5,]+EEGmaskSE[5,],EEGmaskindices[5,13000:1]-EEGmaskSE[5,13000:1]),col=colpal[1],border=NA)
+
+for (f in 1:4){lines(times,EEGmaskindices[f,],col=colpal[f+1])}
+lines(times,EEGmaskindices[5,],col=colpal[1],lwd=4)
 }
 
-EEGmaskindex5 <- colMeans(20*log10(abs(EEGtimecourse5Hz[,1,])/abs(EEGtimecourse5Hz[,3,])))
-EEGmaskindex7 <- colMeans(20*log10(abs(EEGtimecourse7Hz[,2,])/abs(EEGtimecourse7Hz[,3,])))
-EEGmaskindex10 <- colMeans(20*log10(abs(EEGtimecourse10Hz[,1,])/abs(EEGtimecourse10Hz[,3,])))
-EEGmaskindex14 <- colMeans(20*log10(abs(EEGtimecourse14Hz[,2,])/abs(EEGtimecourse14Hz[,3,])))
-
-times <- -499:12500
-
-plot(times,EEGmeantime5Hz[1,],type='l',col=colpal[1],ylim=c(0,1))
-lines(times,EEGmeantime5Hz[2,],col='grey')
-lines(times,EEGmeantime5Hz[3,],col=colpal[2])
-spl5a <- smooth.spline(times,EEGmeantime5Hz[1,],df=20)
-lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
-spl5a <- smooth.spline(times,EEGmeantime5Hz[2,],df=20)
-lines(spl5a$x,spl5a$y,col='grey',lwd=2)
-spl5a <- smooth.spline(times,EEGmeantime5Hz[3,],df=20)
-lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
-
-plot(times,EEGmeantime7Hz[2,],type='l',col=colpal[1],ylim=c(0,1))
-lines(times,EEGmeantime7Hz[1,],col='grey')
-lines(times,EEGmeantime7Hz[3,],col=colpal[2])
-spl5a <- smooth.spline(times,EEGmeantime7Hz[2,],df=20)
-lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
-spl5a <- smooth.spline(times,EEGmeantime7Hz[1,],df=20)
-lines(spl5a$x,spl5a$y,col='grey',lwd=2)
-spl5a <- smooth.spline(times,EEGmeantime7Hz[3,],df=20)
-lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
-
-plot(times,EEGmaskindex5,type='l',col=colpal[1],ylim=c(0,6))
-lines(times,EEGmaskindex7,col=colpal[2])
-lines(times,EEGmaskindex10,col=colpal[4])
-lines(times,EEGmaskindex14,col=colpal[5])
-lines(times,(EEGmaskindex5+EEGmaskindex7+EEGmaskindex10+EEGmaskindex14)/4,col=colpal[3])
-
-spl5a <- smooth.spline(times,EEGmaskindex5,df=20)
-lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
-spl5a <- smooth.spline(times,EEGmaskindex7,df=20)
-lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
-spl5a <- smooth.spline(times,(EEGmaskindex5+EEGmaskindex7+EEGmaskindex10+EEGmaskindex14)/4,df=20)
-lines(spl5a$x,spl5a$y,col=colpal[3],lwd=4)
-
-
-
-
-# f1 <- 7
-# f2 <- 5
-#     binwidth <- 1000
-#     tindex <- 1 + f1*(binwidth/1000)
-#     mindex <- 1 + f2*(binwidth/1000)
-# condlist <- c(6,8,13)
-# 
-# d <- dir('temp/VilidaiteProcessed/')
-# all7Hz <- array(0,dim=c(length(d),14,64))
-# all5Hz <- array(0,dim=c(length(d),14,64))
-# timecourse7Hz <- array(0,dim=c(length(d),3,14000))
-# timecourse5Hz <- array(0,dim=c(length(d),3,14000))
-# 
-#   for (s in 1:length(d)){
-# 
-#     load(paste0('temp/VilidaiteProcessed/',d[s]))
-#     
-#     targetchannels <- match(targetelectrodes, electrodes) - 2
-# 
-#     for (cond in 1:14){
-#       for (ch in 1:64){
-#         temp <- meanwaveforms[cond,ch,2001:12000]
-#         spec <- fft(temp)/length(temp)
-#         all7Hz[s,cond,ch] <- spec[7*10+1]
-#         all5Hz[s,cond,ch] <- spec[5*10+1]
-#       }
-#     }
-#     for (cond in 1:3){
-#     temp <- colMeans(meanwaveforms[condlist[cond],targetchannels,])
-# 
-# fspec1 <- temp*0
-# fspec2 <- temp*0
-# for (t in 1:(length(temp)-binwidth)){
-#   spec <- fft(temp[t:(t+binwidth-1)])/binwidth
-#   fspec1[t] <- spec[tindex]
-#   fspec2[t] <- spec[mindex]
+if (plotsmoothed==1){
+# for (f in 1:4){  
+# spl5aU <- smooth.spline(times,EEGmaskindices[f,]+EEGmaskSE[f,],df=20)
+# spl5aL <- smooth.spline(times,EEGmaskindices[f,]-EEGmaskSE[f,],df=20)
+# polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[f+1],border=NA)
 # }
-#     timecourse7Hz[s,cond,] <- fspec1
-#     timecourse5Hz[s,cond,] <- fspec2
-#     
-#     }
-#     
-#   }
-# 
-# mean7 <- apply(all7Hz[,,targetchannels],1:2,mean)
-# mean5 <- apply(all5Hz[,,targetchannels],1:2,mean)
-# inclusionmatrix7 <- matrix(0,nrow=length(d),ncol=length(condlist))
-# inclusionmatrix5 <- matrix(0,nrow=length(d),ncol=length(condlist))
-# for (cond in 1:3){
-#   temp <- mean7[,condlist[cond]]
-#         tempxy <- data.frame(Re(temp),Im(temp))
-#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-#       inclusionmatrix7[,cond] <- (D<3)
-#    temp <- mean5[,condlist[cond]]
-#         tempxy <- data.frame(Re(temp),Im(temp))
-#       D <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
-#       inclusionmatrix5[,cond] <- (D<3)
-# }
-# 
-# meantime5Hz <- matrix(0,nrow=length(condlist),ncol=14000) 
-# meantime7Hz <- matrix(0,nrow=length(condlist),ncol=14000) 
-# for (cond in 1:3){
-# meantime7Hz[cond,] <- abs(apply(abs(timecourse7Hz[which(inclusionmatrix7[,cond]>0),cond,]),2,mean))
-# meantime5Hz[cond,] <- abs(apply(abs(timecourse5Hz[which(inclusionmatrix5[,cond]>0),cond,]),2,mean))
-# }
-# 
-# plot(-499:13500,meantime5Hz[2,],type='l',col=colpal[1])
-# lines(-499:13500,meantime5Hz[1,],col='grey')
-# lines(-499:13500,meantime5Hz[3,],col=colpal[2])
-# 
-# plot(-499:13500,meantime7Hz[1,],type='l',col=colpal[1])
-# lines(-499:13500,meantime7Hz[2,],col='grey')
-# lines(-499:13500,meantime7Hz[3,],col=colpal[2])
-# 
-# plot(-499:13500,meantime7Hz[1,]/meantime7Hz[3,],type='l',col=colpal[1])
-# lines(-499:13500,meantime5Hz[2,]/meantime5Hz[3,],col=colpal[2])
+  spl5aU <- smooth.spline(times,EEGmaskindices[5,]+EEGmaskSE[5,],df=20)
+spl5aL <- smooth.spline(times,EEGmaskindices[5,]-EEGmaskSE[5,],df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[1],border=NA)
+
+for (f in 1:4){
+spl5a <- smooth.spline(times,EEGmaskindices[f,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[f+1],lwd=2)
+}
+spl5a <- smooth.spline(times,EEGmaskindices[5,],df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=6)
+}
+legend(1,0,c('7Hz','5Hz'),lwd=4,col=colpal[c(2,3)],bty='n')
+legend(5,0,c('14Hz','10Hz'),lwd=4,col=colpal[c(4,5)],bty='n')
+legend(3,-1.4,c('Mean'),lwd=6,col=colpal[1],bty='n')
+
+dev.off()
+
+
+freqlist <- seq(0,19.9,1/10)
+
+postscript("spectrum.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 10)
+
+plotlims <- c(1,20,0,3)  # define the x and y limits of the plot (minx,maxx,miny,maxy)
+ticklocsx <- seq(2,20,2)    # locations of tick marks on x axis
+ticklocsy <- c(0,0.4,0.8,1,2,3)    # locations of tick marks on y axis
+ticklabelsx <- seq(2,20,2)        # set labels for x ticks
+ticklabelsy <- c(0,0.2,0.4,'','','')    # set labels for y ticks
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])   
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)     # plot tick marks (no labels)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklabelsx, side = 1, at=ticklocsx)     # add the tick labels
+mtext(text = ticklabelsy, side = 2, at=ticklocsy, line=0.2, las=1) 
+title(xlab="Frequency (Hz)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    # titles for axes
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+lines(c(0,20),c(0,0),lty=3)
+lines(c(0,20),c(1,1),lty=3)
+lines(c(0,20),c(2,2),lty=3)
+
+polygon(c(freqlist[11],freqlist[11:200],19.9),c(0,2*EEGmeanspec[1,11:200],0)+2,border=NA,col=colpal[1])
+polygon(c(freqlist[11],freqlist[11:200],19.9),c(0,2*EEGmeanspec[2,11:200],0)+1,border=NA,col=colpal[2])
+polygon(c(freqlist[11],freqlist[11:200],19.9),c(0,2*EEGmeanspec[3,11:200],0),border=NA,col=colpal[3])
+
+lines(freqlist[11:200],2*EEGmeanspec[1,11:200]+2,lwd=2,col='black')
+lines(freqlist[11:200],2*EEGmeanspec[2,11:200]+1,lwd=2,col='black')
+lines(freqlist[11:200],2*EEGmeanspec[3,11:200],lwd=2,col='black')
+
+text(20,2.5,'7Hz target',pos=2,cex=1.5)
+text(20,1.5,'5Hz mask',pos=2,cex=1.5)
+text(20,0.5,'Plaid',pos=2,cex=1.5)
+
+dev.off()
+
+
+
+postscript("CRFs.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 9)
+
+contrastsdB <- seq(0,36,6)
+
+plotlims <- c(0,78,0,0.8)
+ticklocsx <- seq(0,36,6)    # locations of tick marks on y axis
+ticklocsy <- seq(0,0.8,0.2)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = c(0,2,4,8,16,32,64), side = 1, at=ticklocsx)
+mtext(text = ticklocsy, side = 2, at=ticklocsy, line=0.2, las=1)
+axis(1, at=ticklocsx+42, tck=0.01, lab=F, lwd=2)
+mtext(text = c(0,2,4,8,16,32,64), side = 1, at=ticklocsx+42)
+title(xlab="Target contrast (%)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+arrows(contrastsdB,EEGmeanconds[1,1:7],contrastsdB,EEGmeanconds[1,1:7]+EEGcondsSE[1,1:7],lwd=2,angle=90,length=0.015,col=colpal[1])
+arrows(contrastsdB,EEGmeanconds[1,1:7],contrastsdB,EEGmeanconds[1,1:7]-EEGcondsSE[1,1:7],lwd=2,angle=90,length=0.015,col=colpal[1])
+
+arrows(contrastsdB,EEGmeanconds[1,8:14],contrastsdB,EEGmeanconds[1,8:14]+EEGcondsSE[1,8:14],lwd=2,angle=90,length=0.015,col=colpal[2])
+arrows(contrastsdB,EEGmeanconds[1,8:14],contrastsdB,EEGmeanconds[1,8:14]-EEGcondsSE[1,8:14],lwd=2,angle=90,length=0.015,col=colpal[2])
+
+lines(contrastsdB,EEGmeanconds[1,1:7],lwd=2,col=colpal[1])
+lines(contrastsdB,EEGmeanconds[1,8:14],lwd=2,col=colpal[2])
+
+points(contrastsdB,EEGmeanconds[1,1:7],pch=16,cex=1.5,col=colpal[1])
+points(contrastsdB,EEGmeanconds[1,8:14],pch=15,cex=1.5,col=colpal[2])
+
+points(contrastsdB[6],EEGmeanconds[1,6],pch=16,cex=2.5,col=colpal[1])
+points(contrastsdB[6],EEGmeanconds[1,13],pch=15,cex=2.5,col=colpal[2])
+
+
+contrastsdB <- contrastsdB+42
+
+arrows(contrastsdB,EEGmeanconds[2,1:7],contrastsdB,EEGmeanconds[2,1:7]+EEGcondsSE[2,1:7],lwd=2,angle=90,length=0.015,col=colpal[1])
+arrows(contrastsdB,EEGmeanconds[2,1:7],contrastsdB,EEGmeanconds[2,1:7]-EEGcondsSE[2,1:7],lwd=2,angle=90,length=0.015,col=colpal[1])
+
+arrows(contrastsdB,EEGmeanconds[2,8:14],contrastsdB,EEGmeanconds[2,8:14]+EEGcondsSE[2,8:14],lwd=2,angle=90,length=0.015,col=colpal[2])
+arrows(contrastsdB,EEGmeanconds[2,8:14],contrastsdB,EEGmeanconds[2,8:14]-EEGcondsSE[2,8:14],lwd=2,angle=90,length=0.015,col=colpal[2])
+
+lines(contrastsdB,EEGmeanconds[2,1:7],lwd=2,col=colpal[1])
+lines(contrastsdB,EEGmeanconds[2,8:14],lwd=2,col=colpal[2])
+
+points(contrastsdB,EEGmeanconds[2,1:7],pch=16,cex=1.5,col=colpal[1])
+points(contrastsdB,EEGmeanconds[2,8:14],pch=15,cex=1.5,col=colpal[2])
+
+points(contrastsdB[1],EEGmeanconds[2,8],pch=15,cex=2.5,col=colpal[2])
+points(contrastsdB[6],EEGmeanconds[2,13],pch=15,cex=2.5,col=colpal[2])
+
+text(18,0.78,'7Hz response',cex=2,adj=0.5)
+text(42+18,0.78,'5Hz response',cex=2,adj=0.5)
+
+legend(65,0.7,c('Target','Target+mask'),pch=16:15,col=colpal[1:2],bty='n')
+
+dev.off()
+
+
+xpos <- 1:64
+ypos <- 1:64
+montageE <- toupper(as.character(hdata$Electrode))
+for (ch in 1:64){
+  i <- match(toupper(electrodes[ch+2]),montageE)
+  xpos[ch] <- hdata$X_position[i]
+  ypos[ch] <- hdata$Y_position[i]
+}
+
+
+for (f in 1:2){
+rmax <- 0.55   #specify a maximum boundary for the grid
+gridRes <- 100 #specify the interpolation grid resolution
+
+datatoplot <- abs(EEGmeanscalp[f,condlist[f],])
+datatoplot[which(is.na(datatoplot))] <- 0
+datatoplot[which(datatoplot<0)] <- 0
+datatoplot[which(datatoplot>30)] <- 0
+
+testDat<- data.frame(x = xpos,
+                     y = -ypos,
+                     z = datatoplot)
+
+#Create the interpolation grid
+xo <- seq(min(-rmax, testDat$x), max(rmax, testDat$x), length = gridRes)
+yo <- seq(max(rmax, testDat$y), min(-rmax, testDat$y), length = gridRes)
+
+interpV4 <- v4Interp(testDat, xo, yo, rmax, gridRes)
+
+zo2 <- as.matrix(interpV4[,2:ncol(interpV4)])
+
+xo2 <- matrix(rep(xo,length(yo)),nrow = length(xo),ncol = length(yo))
+yo2 <- t(matrix(rep(yo,length(xo)),nrow = length(yo),ncol = length(xo)))
+outsidecircle <- sqrt(xo2^2 + yo2^2) > 0.51
+zo2[outsidecircle] <- 0
+
+ramp2 <- colorRamp(c("white",colpal[2]))  
+colmatrix2 <- rgb(ramp2(seq(0, 1, length = 101)), max = 255)
+
+
+tiff(paste0('headplot',f,'.tif'), height = 600, width = 600, units="px", bg="white")
+    
+plotlims <- c(-rmax,rmax,-rmax,rmax)  
+par(pty="s")  # make axis square
+plot(x=NULL,y=NULL,ann=FALSE, axes=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4]) 
+image(xo,xo,zo2,col=colmatrix2,zlim=c(0,0.7),add=TRUE,useRaster=FALSE)
+maskx <- c(hdata$OutlineX[1:51]*2.2,hdata$OutlineX[51:1])
+masky <- c(hdata$OutlineY[1:51]*2.2,hdata$OutlineY[51:1])
+polygon(maskx,masky,border=NA,col="white")
+maskx <- c(hdata$OutlineX[51:101]*2.2,hdata$OutlineX[101:51])
+masky <- c(hdata$OutlineY[51:101]*2.2,hdata$OutlineY[101:51])
+polygon(maskx,masky,border=NA,col="white")
+
+blackelectrodes <- match('OZ',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+blackelectrodes <- match('POZ',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+blackelectrodes <- match('O1',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+blackelectrodes <- match('O2',toupper(as.character(electrodes[3:66])))
+points(xpos[blackelectrodes],ypos[blackelectrodes],pch=16,col="black",cex=1.6)
+
+lines(hdata$OutlineX,hdata$OutlineY,col="black",lwd=2)
+lines(hdata$NoseX,hdata$NoseY,col="black",lwd=2)
+lines(hdata$LearX,hdata$LearY,col="black",lwd=2)
+lines(hdata$RearX,hdata$RearY,col="black",lwd=2)
+
+dev.off()
+}
+
+
+  e1 <- readTIFF('headplot1.tif')
+  e2 <- readTIFF('headplot2.tif')
+
+  PostScriptTrace(paste('CRFs.ps',sep=''))
+  e3 <- readPicture('CRFs.ps.xml')
+  PostScriptTrace(paste('suppression.ps',sep=''))
+  e4 <- readPicture('suppression.ps.xml')
+  for (n in 1:length(e4@paths)){
+    temp <- class(e4@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e4@paths[n]$path@rgb))<765){e4@paths[n]$path@rgb <- addalpha(e4@paths[n]$path@rgb,alpha=0.2)}}}
+  
+  PostScriptTrace(paste('spectrum.ps',sep=''))
+  e5 <- readPicture('spectrum.ps.xml')
+  for (n in 1:length(e5@paths)){
+    temp <- class(e5@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e5@paths[n]$path@rgb))<765){e5@paths[n]$path@rgb <- addalpha(e5@paths[n]$path@rgb,alpha=0.2)}}}
+
+   PostScriptTrace(paste('timecourse1.ps',sep=''))
+  e6 <- readPicture('timecourse1.ps.xml')
+  for (n in 1:length(e6@paths)){
+    temp <- class(e6@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e6@paths[n]$path@rgb))<765){e6@paths[n]$path@rgb <- addalpha(e6@paths[n]$path@rgb,alpha=0.2)}}}
+ 
+   PostScriptTrace(paste('timecourse2.ps',sep=''))
+  e7 <- readPicture('timecourse2.ps.xml')
+  for (n in 1:length(e7@paths)){
+    temp <- class(e7@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e7@paths[n]$path@rgb))<765){e7@paths[n]$path@rgb <- addalpha(e7@paths[n]$path@rgb,alpha=0.2)}}}
+
+     PostScriptTrace(paste('timecourse3.ps',sep=''))
+  e8 <- readPicture('timecourse3.ps.xml')
+  for (n in 1:length(e8@paths)){
+    temp <- class(e8@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e8@paths[n]$path@rgb))<765){e8@paths[n]$path@rgb <- addalpha(e8@paths[n]$path@rgb,alpha=0.2)}}}
+
+     PostScriptTrace(paste('timecourse4.ps',sep=''))
+  e9 <- readPicture('timecourse4.ps.xml')
+  for (n in 1:length(e9@paths)){
+    temp <- class(e9@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e9@paths[n]$path@rgb))<765){e9@paths[n]$path@rgb <- addalpha(e9@paths[n]$path@rgb,alpha=0.2)}}}
+  
+  
+  
+  pdf('temp/figures/Fig2.pdf', bg="transparent", height = 6, width = 16)
+  par(mar=c(0.1,0.1,0.1,0.1))
+  plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=c(0,1), ylim=c(0,1)) 
+
+  aspratio <- 6/16  # this is the aspect ratio of the output pdf
+  imwidth <- 0.25
+  xstart <- 0.02
+  ystart <- 0.58
+  rasterImage(e1,xstart,ystart,xstart+imwidth*aspratio,ystart+imwidth)
+  xstart <- 0.22
+  ystart <- 0.58
+  rasterImage(e2,xstart,ystart,xstart+imwidth*aspratio,ystart+imwidth)
+
+  grid.picture(e3,x=0.225,y=0.7,width=0.4,height=1)
+  grid.picture(e5,x=0.225,y=0.25,width=0.4,height=1)
+
+  grid.picture(e6,x=0.5,y=0.85,width=0.1,height=1)
+  grid.picture(e7,x=0.5,y=0.625,width=0.1,height=1)
+  grid.picture(e8,x=0.5,y=0.375,width=0.1,height=1)
+  grid.picture(e9,x=0.5,y=0.15,width=0.1,height=1)
+  grid.picture(e4,x=0.77,y=0.5,width=0.45,height=1)
+  
+  text(-0.02,0.98,'(a)',pos=4,cex=2)
+  text(-0.02,0.45,'(b)',pos=4,cex=2)
+  text(0.41,0.98,'(c)',pos=4,cex=2)
+  text(0.57,0.98,'(d)',pos=4,cex=2)
+  
+
+  dev.off()
+  
+  file.remove(c('headplot1.tif','headplot2.tif','spectrum.ps','timecourse1.ps','timecourse2.ps','timecourse3.ps','timecourse4.ps','suppression.ps','CRFs.ps'))
+  file.remove(c('spectrum.ps.xml','timecourse1.ps.xml','timecourse2.ps.xml','timecourse3.ps.xml','timecourse4.ps.xml','suppression.ps.xml','CRFs.ps.xml'))
 
 
 }
+
 
 
 ```
+
+```{r Pilotdata, fig.cap="Summary of pilot analysis of data from Vilidiate et al. (2018). Panel (a) shows contrast response functions at the target frequency (7Hz, left) and the mask frequency (5Hz, right). Insets show the distribution of activity across the scalp, with points marking electrodes Oz, POz, O1 and O2. Panel (b) shows Fourier spectra for the single component stimuli and their combination (plaid). Note the strong second harmonic components at 14Hz and 10Hz. Panel (c) shows timecourses of responses to a single stimulus (black) and the plaid stimulus (blue), compared to baseline (grey). Panel (d) shows the timecourse of suppression at each frequency (7Hz, 5Hz, 14Hz, 10Hz) and their average (black curve). In panels (c,d), shaded regions indicate ±1SE, and grey rectangles indicate the timing of stimulus presentation.", fig.align="center", echo=FALSE}
+
+knitr::include_graphics('temp/figures/Fig2.pdf')
+
+```
+
 Our initial reanalysis was promising, however the data were noisy despite the large sample size, because each participant contributed only 8 trials to each condition. We therefore preregistered two new experiments (see https://osf.io/4qudc) to investigate these effects in greater detail. These had a similar overall design to the Vilidaite study, with some small changes intended to optimise the study (see Methods). The key differences were that we used shorter trials (because there were few changes in the latter part of the trials shown in Figure 1), and also focussed all trials into a smaller number of conditions, such that each participant contributed 48 repetitions to each of 4 conditions. The greater data fidelity afforded by this design allowed us to perform a sliding time window analysis of the results.
 
 Figure \@ref(fig:EEGdata) summarises the results of an EEG experiment testing 100 neurotypical participants. Averaged EEG waveforms showed a strong oscillatory component at each of the two stimulus flicker frequencies (Figure \@ref(fig:EEGdata)a), which slightly lagged the driving signal. Signals were well-isolated in the Fourier domain, and localised to occipital electrodes (Figure \@ref(fig:EEGdata)b). The timecourse at both frequencies showed an initial onset transient, and was then relatively stable for the 6 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)c,d). Responses were weaker in the two masking conditions, and the ratio of target only to target + mask conditions increased over time (Figure \@ref(fig:EEGdata)e,f) for both mask types. At 5Hz the increase in masking continued over the first 5 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)e), whereas at 7Hz the increase occurred mostly during the first second after onset (Figure \@ref(fig:EEGdata)f).
@@ -567,7 +845,7 @@ duration <- 6
     mindex <- 1 + maskF*(binwidth/samplerate)
     legaltriggers <- c(210,211,220,221,230,231,240,241)
 
- if (processraw==1){
+ if (processdata>2){
    
 osfproject <- osf_retrieve_node("ab3yv")
 componentlist <- osf_ls_nodes(osfproject)
@@ -668,7 +946,8 @@ for (datahalf in 1:length(EEGID)){
  }
 }
    
-
+ }
+if (processdata>1){    
 d <- dir(path = 'temp/EEGprocessed', pattern = '*.RData', full.names=TRUE)
 EEGtimecourse5Hz <- array(0,dim=c(length(d),4,8000))
 EEGtimecourse7Hz <- array(0,dim=c(length(d),4,8000))
@@ -713,7 +992,7 @@ for (t in 1:(9000-binwidth)){
 save(file='temp/EEGsummary.RData',list=c('allheads5','allheads7','allspec','allwaves','EEGtimecourse5Hz','EEGtimecourse7Hz','electrodes'))
  }
     
-if (runcode==1){
+if (processdata>0){
 load('temp/EEGsummary.RData')
 
 isincluded <- matrix(rep(1,4*dim(allspec)[1]),nrow=4,ncol=dim(allspec)[1])
@@ -1311,8 +1590,6 @@ dev.off()
 
 }
     
-
-
 ```
 
 ```{r EEGdata, fig.cap="Summary of EEG results for N=100 neurotypical participants. Panel (a) shows scalp topographies and averaged waveforms for 5Hz (top) and 7Hz (bottom) stimuli. The black sine wave trace in each panel illustrates the driving contrast modulation, and black points on the scalp topographies indicate electrodes Oz, O1, O2 and POz. Panel (b) shows the Fourier amplitude spectrum for each condition, with clear peaks at 5Hz and 7Hz. Panels (c,d) show timecourses at each frequency for the baseline condition (black), and the monocular (blue) and dichoptic (red) masking conditions. Panels (e,f) show suppression ratios as a function of time for each mask type. Light grey rectangles indicate the period of stimulus presentation.", fig.align="center", echo=FALSE}
@@ -1338,7 +1615,7 @@ duration <- 6
     tindex <- 1 + targetF*(binwidth/samplerate)
     mindex <- 1 + maskF*(binwidth/samplerate)
     
-if (processraw==1){
+if (processdata>1){
   
 d <- dir(path = 'temp/MEGtrialsWang/', pattern = '*alltrials.mat', full.names=TRUE)
 d2 <- dir(path = 'temp/MEGtrialsWang/', pattern = '*alltrials.mat', full.names=FALSE)
@@ -1376,8 +1653,9 @@ for (t in 1:(9009-binwidth)){
 }
 
 save(file='temp/MEGsummary.RData',list=c('allspec','MEGtimecourse5Hz','MEGtimecourse7Hz','allRnos'))
+}
 
-
+if (processdata>0){
 load('temp/MEGsummary.RData')
 
 isincluded <- array(1, dim=c(nareas,4,dim(allspec)[1]))
