@@ -1,21 +1,23 @@
 ---
-title: 'The Dynamics of Normalization Reweighting (target journal: Neuron)'
+title: 'Temporal Dynamics of Normalization Reweighting (target journal: Neuron)'
 author: Daniel H. Baker, Daniela Marinova, Richard Aveyard, Lydia Hargreaves, Alice
-  Renton, Ruby Castellani, Phoebe Hall, Miriam Harmens, Georgia Holroyd,
-  Beth Nicholson, Emily Williams, Hannah M. Hobson & Alex R. Wade
+  Renton, Ruby Castellani, Phoebe Hall, Miriam Harmens, Georgia Holroyd, Beth Nicholson,
+  Emily Williams, Hannah M. Hobson & Alex R. Wade
 date: "`r Sys.Date()`"
 output:
   bookdown::pdf_document2:
-    fig_caption: yes 
-    toc: false   
-    keep_tex: true
+    fig_caption: yes
+    toc: no
+    keep_tex: yes
   word_document: default
+  pdf_document:
+    toc: no
   html_document: default
 ---
 
 ```{r setup, include=FALSE}
 
-processdata <- 1  # this flag determines the amount of processing, with 4 levels:
+processdata <- 0  # this flag determines the amount of processing, with 4 levels:
 # 0 - do no processing, generate the pdf using existing versions of all scripts
 # 1 - generate figures using the processed group data (requires XGB of storage)
 # 2 - download processed individual data and analyse (requires XGB of storage)
@@ -24,7 +26,7 @@ processdata <- 1  # this flag determines the amount of processing, with 4 levels
 plotsmoothed <- 1 # either plot the raw data (0), or a smoothed spline (1)
 
 # reasonably compact code to check which packages are installed, install the missing ones, and activate all
-packagelist <- c('knitr','remotes','tictoc','R.matlab','bookdown','grImport','tiff') # list of CRAN packages
+packagelist <- c('knitr','remotes','tictoc','R.matlab','bookdown','grImport','tiff','pals') # list of CRAN packages
 missingpackages <- packagelist[!packagelist %in% installed.packages()[,1]]
 if (length(missingpackages)>0){install.packages(missingpackages)}
 if (!'osfr' %in% installed.packages()[,1]){remotes::install_github("centerforopenscience/osfr")}
@@ -83,6 +85,25 @@ reverseitems[c(3,8,10,11,14,15,17,24,25,27,28,29,30,31,32,34,36,37,38,40,44,47,4
 thisAQ <- round(50*thisAQ/nansweredAQ)    
 return(thisAQ)}
 
+scoreAQshort <- function(qdata){
+# score the AQ questionnaire - short version
+# input is a row from a spreadsheet indicating responses to 28 questions
+AQanswers <- toupper(c('(1) Definitely agree','(2) Slightly agree', '(3) Slightly disagree', '(4) Definitely disagree'))
+reverseitems <- rep(0,28)
+ # reverse scored questionnaire items
+reverseitems[c(7, 50, 52, 54, 55, 58, 59, 62, 63, 64, 65, 66, 67, 69, 72)] <- 1 
+
+  thisAQ <- 0
+  nansweredAQ <- 0
+  for (q in 1:28){
+    response <- which(AQanswers==toupper(as.character(qdata[1,q])))
+    if (length(response)>0){
+      nansweredAQ <- nansweredAQ + 1
+      if (reverseitems[q]==0){response <- 5 - response}
+      if (response>2){thisAQ <- thisAQ + 1}
+    }}
+thisAQ <- round(50*thisAQ/nansweredAQ)    
+return(thisAQ)}
 
 knitr::opts_chunk$set(echo = TRUE)
 colpal <- c('#000000','#8783CF','#FE5000','#228B22','#8B8000')
@@ -104,35 +125,32 @@ hdata <- read.csv('~/Google Drive/Current work/R scripts/EEG analysis/headerfile
 
 ## Abstract
 
-Our analysis of 220 human M/EEG datasets
+For decades, neural suppression in early visual cortex has been thought to be fixed. But recent work has challenged this assumption by showing that suppression can be \emph{reweighted} based on recent history; when pairs of stimuli are repeatedly presented together, suppression between them strengthens. Here we investigate the temporal dynamics of this process using a steady-state VEP paradigm that provides a time-resolved, direct index of suppression between pairs of stimuli flickering at different frequencies (5 and 7Hz). Our initial analysis of an existing EEG dataset (N=100) indicated that suppression increases substantially during the first 4 seconds of stimulus presentation. We then collected new EEG data (N=100) replicating this finding for both monocular and dichoptic mask arrangements in a preregistered study designed to measure reweighting. A third experiment (N=20) use source localized MEG, and found that suppression increases across the visual hierarchy, and that reweighting is more rapid in dorsal compared with ventral visual areas. Because long-standing theories propose inhibition/excitation differences in autism, we also compared reweighting between individuals with high vs low autistic traits, and with and without an autism diagnosis, across our 3 data sets (total N=220). We find . . .
+
 
 ## Introduction
 
-Suppressive interactions between neurons are ubiquitous in the nervous system, and normalization (or gain control) processes have been proposed as a canonical neuronal computation (Carandini & Heeger). Yet the strength of suppression was for decades treated as fixed, largely due to the observation that adapting to one stimulus does not decrease its suppressive potency (refs). This orthodoxy was recently challenged by a series of innovative studies showing that normalization can be 'reweighted' by recent history (Westrick, Aschner, Yiltiz). Specifically, when pairs of stimuli are repeatedly presented together, they come to suppress each other more strongly. This suggests that, far from being fixed, normalization is a dynamic process that is continuously updated by the sensory environment. Here, our objectives were to determine if the timecourse of these changes can be measured non-invasively from the human brain, assess if they occur across suppressive pathways, and determine whether they differ across the population as a function of self-reported sensory experience, and autistic traits.
+Suppressive interactions between neurons are ubiquitous in the nervous system, and normalization (or gain control) processes are considered a canonical neuronal computation (Carandini & Heeger). Yet the strength of suppression was for decades treated as fixed, largely due to the observation that adapting to one stimulus does not decrease its suppressive potency (refs). This orthodoxy was recently challenged by a series of innovative studies showing that normalization can be 'reweighted' by recent history (Westrick, Aschner, Yiltiz). Specifically, when pairs of stimuli are repeatedly presented together, they come to suppress each other more strongly. This suggests that, far from being fixed, normalization is a dynamic process that is continuously updated by the sensory environment. Here, our objectives were to determine if the timecourse of these changes can be measured non-invasively from the human brain, assess if they occur across suppressive pathways, and determine whether they differ across the population as a function of autistic traits.
 
-Atypical sensory experience is widely reported by individuals on the autism spectrum, yet the causal mechanisms remain unclear. Typical issues include hypersensitivity to intense stimuli such as loud sounds, bright lights and strong odours or flavours. Yet fundamental measures of sensitivity such as visual acuity, contrast sensitivity, and audiometric performance (Rosenhall et al. 1999) are not consistently different from neurotypical controls. 
+Atypical sensory experience is widely reported by individuals on the autism spectrum, but the causal mechanisms remain unclear. Typical issues include hypersensitivity to intense stimuli such as loud sounds, bright lights and strong odours or flavours. Yet fundamental measures of sensitivity such as visual acuity, contrast sensitivity, and audiometric performance (Rosenhall et al. 1999) are not consistently different from neurotypical controls. Theoretical accounts of sensory differences in autism have long proposed that the balance of inhibition and excitation may be disrupted, and there are isolated results that seem consistent with this. For example 
+However many other studies have failed to find group differences using tasks that are at least superficially dependent on inhibition, such as...
 
-Simmons
 
-Dickinson 2014 oblique effect
+A comprehensive review of the literature on vision in autism (Simmons et al., 2009)
 
-Vilidaite summary
 
-Theoretical accounts of sensory differences in autism have long proposed that the balance of inhibition and excitation may be disrupted, and there are isolated results that seem consistent with this. For example ... However many other studies have failed to find group differences using tasks that are at least superficially dependent on inhibition, such as...
+Our recent work has identified a potential autism-related difference in gain control using steady-state EEG methods. Vilidaite et al. (2018) measured contrast response functions for flickering stimuli in a large group of neurotypical adults, who were split by their autism quotient (AQ; Baron-Cohen et al., 2001) score. The responses were comparable between high and low AQ groups at the flicker frequency of the stimulus. However at the second harmonic frequency (twice the flicker frequency), the high AQ group showed weaker responses than the low AQ group. This effect was replicated in an independent sample of 12 adults with an autism diagnosis (compared with neurotypical controls). Because second harmonic responses are caused by nonlinear interactions in the visual system (they are absent in a linear system), this potentially implicates differences in divisive suppression in autism. Furthermore, there appears to be a developmental trajectory, as autistic children tested as part of the same study (Vilidaite et al., 2018) showed weaker responses at both the first and second harmonic frequencies.
 
-Priors
+Suppression itself is not a single process. Multiple suppressive pathways have been identified in the visual system, including between stimuli differing in orientation, eye-of-origin and spatial position. At present there is evidence of normalization reweighting between stimuli of orthogonal orientations (Aschner, 2018), and adjacent spatial positions (Yiltiz, 2020). We also wondered if interocular suppression might be subject to reweighting, and if there are differences in the dynamics across pathways. This is possible, given that suppression within and between the eyes has different spatiotemporal tuning (Meese & Baker, 2009), and dichoptic masking can be reduced by adapting to the mask (Baker, 2007 and other studies), unlike within-eye masking. Dynamic fluctuations in interocular suppression are a feature of binocular rivalry (Wilson, 2003; Alais et al., 2006), for which differences in autism have also been reported (Robertson). 
 
-Suppression itself is not a single process. Multiple suppressive pathways have been identified in the visual system, including between stimuli differing in orientation, eye-of-origin and spatial position. At present there is evidence of normalization reweighting between stimuli of orthogonal orientations (Aschner, 2018), and adjacent spatial positions (Yiltiz, 2020). We also wondered if interocular suppression might be subject to reweighting, and if there are differences in the dynamics across pathways. This is possible, given that suppression within and between the eyes has different spatiotemporal tuning (Meese & Baker, 2009), and dichoptic masking can be reduced by adapting to the mask (Baker, 2007 and other studies), unlike within-eye masking. Dynamic fluctuations in interocular suppression are a feature of binocular rivalry (Wilson, 2003), for which differences in autism have also been reported (Robertson). 
-
-We hypothesised that normalization reweighting might differ as a function of autistic traits. The relative novelty of the reweighting framework could explain why any differences have not previously been detected, and why the literature on inhibition in autism is relatively inconclusive. In this paper we perform a time-course analysis of a previously published EEG data set, and report two novel pre-registered experiments using EEG and MEG. Our data show that suppression increases substantially during the first 4 seconds after stimulus onset, for both monocular and dichoptic masks, and as early as V1. Autism ...
+We hypothesised that normalization reweighting might differ as a function of autistic traits. The relative novelty of the reweighting framework could explain why any differences have not previously been detected, and why the literature on inhibition in autism is relatively inconclusive. In this paper we perform a time-course analysis of a previously published EEG data set, and report two novel pre-registered experiments using EEG and MEG. Our data show that suppression increases substantially during the first 6 seconds after stimulus onset, for both monocular and dichoptic masks. The timecourse of reweighting is slower in ventral brain regions, and more rapid in dorsal parts of the visual pathway. Autism ...
 
 
 ## Results
 
-We began by reanalysing data from a steady-state visually evoked potential (SSVEP) experiment reported by Vilidaite et al (2018). Participants viewed arrays of flickering gratings of varying contrasts. In some conditions a single grating orientation was present flickering at 7Hz, whereas in other conditions a high contrast 'mask' was added at right angles to the target gratings, and flickering at 5Hz. Figure 1a shows contrast response functions with and without the mask - the presence of the mask reduces the 7Hz response to the target. Similarly, Figure 1b shows that the 5Hz response to the mask was itself suppressed by the presence of high contrast targets (note that the data from the mask conditions were not reported by Vilidaite et al.). At both frequencies, responses were localised to the occipital pole (see insets).
+We began by reanalysing data from a steady-state visually evoked potential (SSVEP) experiment reported by Vilidaite et al (2018). Participants viewed arrays of flickering gratings of varying contrasts. In some conditions a single grating orientation was present flickering at 7Hz, whereas in other conditions a high contrast 'mask' was added at right angles to the target gratings, and flickering at 5Hz. The left panel of Figure \@ref(fig:Pilotdata)a shows contrast response functions with and without the mask - the presence of the mask reduces the 7Hz response to the target (blue squares are below the black circles). Similarly, the right panel of Figure \@ref(fig:Pilotdata)a shows that the 5Hz response to the mask was itself suppressed by the presence of high contrast targets (note that the data from the mask conditions were not reported by Vilidaite et al.). At both frequencies, responses were localised to the occipital pole (see insets).
 
-We then performed a novel timecourse analysis, in which we separated each 11-second trial into bins of 1 second duration. Figure 1c shows the response at the target frequency (7Hz) to a single stimulus of 32% contrast, and the response at 7Hz when the mask is added. For the target alone there is a gradual decline throughout the trial, consistent with traditional adaptation effects. The reduction in signal strength when the mask component is added illustrates the masking effect. Taking the ratio of the two timecourses reveals that masking increases steeply during the first 4 seconds of stimulus presentation, plateaus for several seconds, and then possibly declines. A similar pattern is observed at 5Hz (Figures 1e,f). Finally, we split the data set by median AQ score (see Figure 1g). Averaging across frequency, the low AQ group showed a strong increase over the first 4 seconds of the trial, whereas the high AQ group showed a much shallower change over the same time period (Figure 1h).
-
+We then performed a timecourse analysis, in which we analysed each 11-second trial using a sliding 1-second time window. Figure \@ref(fig:Pilotdata)c shows the response at the target frequency (7Hz) to a single stimulus of 32% contrast (black), and the response at 7Hz when the mask is added (blue). Analogous responses are shown at three other frequencies - the mask frequency (5Hz), and the second harmonics of both target and mask frequencies (14Hz, 10Hz), at which strong responses were also found (see spectra in Figure \@ref(fig:Pilotdata)b). The reduction in signal strength when the mask component is added illustrates the masking effect. Taking the ratio of the two timecourses to calculate a masking index reveals that masking increases steeply during the first two seconds of stimulus presentation, and then plateaus for several seconds (blue trace in Figure \@ref(fig:Pilotdata)d). A similar pattern is observed at 5Hz (red trace in Figure \@ref(fig:Pilotdata)d), with the increase continuing for around four seconds, as well as at the second harmonics. The black trace shows the average masking ratio across all four frequencies, which rises steeply for just over two seconds, mor gradually for a further two seconds, and then stays approximately constant.
 
 ```{r include=FALSE, results='hide'}
 
@@ -845,15 +863,15 @@ dev.off()
 
 ```
 
-```{r Pilotdata, fig.cap="Summary of pilot analysis of data from Vilidiate et al. (2018). Panel (a) shows contrast response functions at the target frequency (7Hz, left) and the mask frequency (5Hz, right). Insets show the distribution of activity across the scalp, with points marking electrodes Oz, POz, O1 and O2. Panel (b) shows Fourier spectra for the single component stimuli and their combination (plaid). Note the strong second harmonic components at 14Hz and 10Hz. Panel (c) shows timecourses of responses to a single stimulus (black) and the plaid stimulus (blue), compared to baseline (grey). Panel (d) shows the timecourse of suppression at each frequency (7Hz, 5Hz, 14Hz, 10Hz) and their average (black curve). In panels (c,d), shaded regions indicate ±1SE, and grey rectangles indicate the timing of stimulus presentation.", fig.align="center", echo=FALSE}
+```{r Pilotdata, fig.cap="Summary of pilot analysis of data from Vilidiate et al. (2018). Panel (a) shows contrast response functions at the target frequency (7Hz, left) and the mask frequency (5Hz, right). Insets show the distribution of activity across the scalp, with points marking electrodes Oz, POz, O1 and O2. Panel (b) shows Fourier spectra for the single component stimuli and their combination (plaid). Note the strong second harmonic components at 14Hz and 10Hz. Panel (c) shows timecourses of frequency-locked responses to a single stimulus (black) and the plaid stimulus (blue), compared to baseline (grey). Panel (d) shows the timecourse of suppression at each frequency (7Hz, 5Hz, 14Hz, 10Hz) and their average (black curve). Error bars in panel (a) and shaded regions in panels (c,d) indicate ±1SE, and grey rectangles indicate the timing of stimulus presentation. The larger symbols in panel (a) indicate conditions used for subsequent analyses.", fig.align="center", echo=FALSE}
 
 knitr::include_graphics('temp/figures/Fig2.pdf')
 
 ```
 
-Our initial reanalysis was promising, however the data were noisy despite the large sample size, because each participant contributed only 8 trials to each condition. We therefore preregistered two new experiments (see https://osf.io/4qudc) to investigate these effects in greater detail. These had a similar overall design to the Vilidaite study, with some small changes intended to optimise the study (see Methods). The key differences were that we used shorter trials (because there were few changes in the latter part of the trials shown in Figure 1), and also focussed all trials into a smaller number of conditions, such that each participant contributed 48 repetitions to each of 4 conditions. The greater data fidelity afforded by this design allowed us to perform a sliding time window analysis of the results.
+Our initial reanalysis was promising, however the data were noisy despite the large sample size, because each participant contributed only 8 trials (88 seconds) to each condition. We therefore preregistered two new experiments (see https://osf.io/4qudc) to investigate these effects in greater detail. These had a similar overall design to the Vilidaite study, with some small changes intended to optimise the study (see Methods). The key differences were that we used shorter trials (because there were few changes in the latter part of the trials shown in Figure \@ref(fig:Pilotdata)), and also focussed all trials into a smaller number of conditions, such that each participant contributed 48 repetitions (288 seconds of data) to each of 4 conditions.
 
-Figure \@ref(fig:EEGdata) summarises the results of an EEG experiment testing 100 neurotypical participants. Averaged EEG waveforms showed a strong oscillatory component at each of the two stimulus flicker frequencies (Figure \@ref(fig:EEGdata)a), which slightly lagged the driving signal. Signals were well-isolated in the Fourier domain, and localised to occipital electrodes (Figure \@ref(fig:EEGdata)b). The timecourse at both frequencies showed an initial onset transient, and was then relatively stable for the 6 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)c,d). Responses were weaker in the two masking conditions, and the ratio of target only to target + mask conditions increased over time (Figure \@ref(fig:EEGdata)e,f) for both mask types. At 5Hz the increase in masking continued over the first 5 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)e), whereas at 7Hz the increase occurred mostly during the first second after onset (Figure \@ref(fig:EEGdata)f).
+Figure \@ref(fig:EEGdata) summarises the results of our EEG experiment testing a further 100 neurotypical adults. Averaged EEG waveforms showed a strong oscillatory component at each of the two stimulus flicker frequencies (Figure \@ref(fig:EEGdata)a), which slightly lagged the driving signal. Signals were well-isolated in the Fourier domain (Figure \@ref(fig:EEGdata)b), and localised to occipital electrodes. The timecourse at both frequencies showed an initial onset transient, and was then relatively stable for the 6 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)c,d). Responses were weaker in the two masking conditions, and the ratio of target only to target + mask conditions increased over time (Figure \@ref(fig:EEGdata)e,f) for both mask types. At 5Hz the increase in masking continued over the first 5 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)e), whereas at 7Hz the increase occurred mostly during the first second after onset (Figure \@ref(fig:EEGdata)f), consistent with the pilot data (see Figure \@ref(fig:Pilotdata)).
 
 ```{r include=FALSE, results='hide'}
 
@@ -1620,10 +1638,9 @@ knitr::include_graphics('temp/figures/Fig3.pdf')
 
 ```
 
-Participants showed a wide range of scores on both the AQ and SPQ scales, which were negatively correlated (Fig 3a; R = , p < ). We again performed a median split by AQ on the EEG data, and calculated the timecourse of the EEG response and suppression ratios for each group (Figure 3b,c).
+Next we repeated the experiment on 20 participants using a 248-channel whole-head cryogenic MEG system. Half of the participants had a diagnosis of autism, and the remainder were age and gender-matched controls. Source localisation using a linearly constrained minimum variance (LCMV) beamformer algorithm (reference) showed strong localisation of steady-state signals at the occipital pole (see Figure \@ref(fig:MEGdata)a,b). 
 
-
-Next we repeated the experiment on 20 participants using a 248-channel whole-head cryogenic MEG system. Half of the participants had a diagnosis of autism, and the remainder were age and gender-matched controls. Source localisation using a linearly constrained minimum variance (LCMV) beamformer algorithm (reference) showed strong localisation of steady-state signals at the occipital pole (see Figure 4a,b). Responses across V1 showed a similar timecourse to those of the EEG experiment at both frequencies (Figure 4c,d), and showed increasing suppression during the first 4 seconds of stimulus presentation (Figure 4e,f).
+Responses across V1 showed a similar timecourse to those of the EEG experiment at both frequencies (Figure 4c,d), and showed increasing suppression during the first 4 seconds of stimulus presentation (Figure 4e,f).
 
 
 ```{r include=FALSE, results='hide'}
@@ -1636,7 +1653,8 @@ duration <- 6
     binwidth <- 1001
     tindex <- 1 + targetF*(binwidth/samplerate)
     mindex <- 1 + maskF*(binwidth/samplerate)
-    
+MEGareacols <- cols25(8)[c(1:5,8,7)]
+  
 if (processdata>1){
   
 d <- dir(path = 'temp/MEGtrialsWang/', pattern = '*alltrials.mat', full.names=TRUE)
@@ -1769,16 +1787,16 @@ lines(times,10*MEGmeantime5Hz[4,],lwd=2,col=colpal[3])
 
 if (plotsmoothed==1){
   for (area in 1:nareas){
-spl5aU <- smooth.spline(times,MEGmeantime5Hz[1,]+MEGSEtime5Hz[1,],df=20)
-spl5aL <- smooth.spline(times,MEGmeantime5Hz[1,]-MEGSEtime5Hz[1,],df=20)
+spl5aU <- smooth.spline(times,MEGmeantime5Hz[area,1,]+MEGSEtime5Hz[area,1,],df=20)
+spl5aL <- smooth.spline(times,MEGmeantime5Hz[area,1,]-MEGSEtime5Hz[area,1,],df=20)
 polygon(times[c(1:8008,8008:1)],c(spl5aU$y,spl5aL$y[8008:1]),col=colpal[1],border=NA)
 
-spl5cU <- smooth.spline(times,MEGmeantime5Hz[3,]+MEGSEtime5Hz[3,],df=20)
-spl5cL <- smooth.spline(times,MEGmeantime5Hz[3,]-MEGSEtime5Hz[3,],df=20)
+spl5cU <- smooth.spline(times,MEGmeantime5Hz[area,3,]+MEGSEtime5Hz[area,3,],df=20)
+spl5cL <- smooth.spline(times,MEGmeantime5Hz[area,3,]-MEGSEtime5Hz[area,3,],df=20)
 polygon(times[c(1:8008,8008:1)],c(spl5cU$y,spl5cL$y[8008:1]),col=colpal[2],border=NA)
 
-spl5dU <- smooth.spline(times,MEGmeantime5Hz[4,]+MEGSEtime5Hz[4,],df=20)
-spl5dL <- smooth.spline(times,MEGmeantime5Hz[4,]-MEGSEtime5Hz[4,],df=20)
+spl5dU <- smooth.spline(times,MEGmeantime5Hz[area,4,]+MEGSEtime5Hz[area,4,],df=20)
+spl5dL <- smooth.spline(times,MEGmeantime5Hz[area,4,]-MEGSEtime5Hz[area,4,],df=20)
 polygon(times[c(1:8008,8008:1)],c(spl5dU$y,spl5dL$y[8008:1]),col=colpal[3],border=NA)
   }
   for (area in 1:nareas){  
@@ -1792,6 +1810,78 @@ spl5d <- smooth.spline(times,10*MEGmeantime5Hz[area,4,],df=20)
 lines(spl5d$x,spl5d$y,col=colpal[3],lwd=2)
 }
 }
+
+dev.off()
+
+postscript("timecourse2.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,-3,7)
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+polygon(times[c(1:8008,8008:1)],c(MEGmaskindex5[1,]+MEGmaskindexSE5[1,],MEGmaskindex5[1,8008:1]-MEGmaskindexSE5[1,8008:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8008,8008:1)],c(MEGmaskindex5[2,]+MEGmaskindexSE5[2,],MEGmaskindex5[2,8008:1]-MEGmaskindexSE5[2,8008:1]),col=colpal[3],border=NA)
+
+
+lines(times,MEGmaskindex5[1,],col=colpal[2],lwd=2)
+lines(times,MEGmaskindex5[2,],col=colpal[3],lwd=2)
+}
+if (plotsmoothed==1){
+U <- smooth.spline(times,MEGmaskindex5[1,]+MEGmaskindexSE5[1,],df=20)
+L <- smooth.spline(times,MEGmaskindex5[1,]-MEGmaskindexSE5[1,],df=20)
+polygon(times[c(1:8008,8008:1)],c(U$y,L$y[8008:1]),col=colpal[2],border=NA)
+
+U <- smooth.spline(times,MEGmaskindex5[2,]+MEGmaskindexSE5[2,],df=20)
+L <- smooth.spline(times,MEGmaskindex5[2,]-MEGmaskindexSE5[2,],df=20)
+polygon(times[c(1:8008,8008:1)],c(U$y,L$y[8008:1]),col=colpal[3],border=NA)
+
+for (area in 1:nareas){ 
+L <- smooth.spline(times,MEGmaskindex5[area,1,],df=20)
+lines(L$x,L$y,col=MEGareacols[area],lwd=2)
+# L <- smooth.spline(times,MEGmaskindex5[area,2,],df=20)
+# lines(L$x,L$y,col=colpal[3],lwd=2)
+}
+legend(1,2,c('V1','V2','V3','hV4','TO','LO','VO'),col=MEGareacols,lwd=2)
+}
+
+dev.off()
+
+
+postscript("timecourse2.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,-3,7)
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+for (area in 1:nareas){ 
+L <- smooth.spline(times,MEGmaskindex5[area,2,],df=20)
+lines(L$x,L$y,col=MEGareacols[area],lwd=2)
+# L <- smooth.spline(times,MEGmaskindex5[area,2,],df=20)
+# lines(L$x,L$y,col=colpal[3],lwd=2)
+}
+legend(1,2,c('V1','V2','V3','hV4','TO','LO','VO'),col=MEGareacols,lwd=2)
+
 
 dev.off()
 
@@ -1830,15 +1920,43 @@ L <- smooth.spline(times,MEGmaskindex5[2,]-MEGmaskindexSE5[2,],df=20)
 polygon(times[c(1:8008,8008:1)],c(U$y,L$y[8008:1]),col=colpal[3],border=NA)
 
 for (area in 1:nareas){ 
-L <- smooth.spline(times,MEGmaskindex5[area,1,],df=20)
-lines(L$x,L$y,col=colpal[2],lwd=2)
-L <- smooth.spline(times,MEGmaskindex5[area,2,],df=20)
-lines(L$x,L$y,col=colpal[3],lwd=2)
+L <- smooth.spline(times,MEGmaskindex7[area,1,],df=20)
+lines(L$x,L$y,col=MEGareacols[area],lwd=2)
+# L <- smooth.spline(times,MEGmaskindex5[area,2,],df=20)
+# lines(L$x,L$y,col=colpal[3],lwd=2)
 }
+legend(1,2,c('V1','V2','V3','hV4','TO','LO','VO'),col=MEGareacols,lwd=2)
 }
 
 dev.off()
 
+
+postscript("timecourse2.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,-3,7)
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+for (area in 1:nareas){ 
+L <- smooth.spline(times,MEGmaskindex7[area,2,],df=20)
+lines(L$x,L$y,col=MEGareacols[area],lwd=2)
+# L <- smooth.spline(times,MEGmaskindex5[area,2,],df=20)
+# lines(L$x,L$y,col=colpal[3],lwd=2)
+}
+legend(1,2,c('V1','V2','V3','hV4','TO','LO','VO'),col=MEGareacols,lwd=2)
+
+
+dev.off()
 
 postscript("timecourse3.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
 
@@ -2339,8 +2457,210 @@ Spectra, timecourses
 NR for each frequency, mon & dich, split by group
 
 
+```{r include=FALSE, results='hide'}
+
+if (processdata>0){
+load('temp/EEGsummary.RData')
+
+isincluded <- matrix(rep(1,4*dim(allspec)[1]),nrow=4,ncol=dim(allspec)[1])
+for (cond in 1:4){
+  # note that in allspec the DC component has been removed
+  # so we don't need to add 1 to the index
+      tempxy <- data.frame(Re(allspec[,cond,duration*targetF]),Im(allspec[,cond,duration*targetF]))
+      D5 <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+      tempxy <- data.frame(Re(allspec[,cond,duration*maskF]),Im(allspec[,cond,duration*maskF]))      
+      D7 <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))      
+      isincluded[cond,which(D5>3)] <- 0
+      isincluded[cond,which(D7>3)] <- 0
+   for (s in 1:100){
+     if (max(abs(EEGtimecourse5Hz[s,cond,]))>5){isincluded[cond,s] <- 0}
+   }   
+}
+
+allwaves[which(allwaves<(-100))] <- 0
+allwaves[which(allwaves>100)] <- 0
+
+medAQ <- median(allAQ)
+islowAQ <- rep(0,100)
+ishighAQ <- rep(0,100)
+islowAQ[which(allAQ<medAQ)] <- 1
+ishighAQ[which(allAQ>medAQ)] <- 1
+
+EEGmeantime5HzL <- matrix(0,nrow=4,ncol=8000)
+EEGmeantime7HzL <- matrix(0,nrow=4,ncol=8000)
+EEGSEtime5HzL <- matrix(0,nrow=4,ncol=8000)
+EEGSEtime7HzL <- matrix(0,nrow=4,ncol=8000)
+EEGmeantime5HzH <- matrix(0,nrow=4,ncol=8000)
+EEGmeantime7HzH <- matrix(0,nrow=4,ncol=8000)
+EEGSEtime5HzH <- matrix(0,nrow=4,ncol=8000)
+EEGSEtime7HzH <- matrix(0,nrow=4,ncol=8000)
+
+for (cond in 1:4){
+lowAQincluded <- islowAQ * isincluded[cond,]
+highAQincluded <- ishighAQ * isincluded[cond,]
+
+EEGmeantime7HzL[cond,] <- apply(abs(EEGtimecourse7Hz[which(lowAQincluded==1),cond,]),2,mean,na.rm=TRUE)
+EEGmeantime5HzL[cond,] <- apply(abs(EEGtimecourse5Hz[which(lowAQincluded==1),cond,]),2,mean,na.rm=TRUE)
+
+EEGSEtime7HzL[cond,] <- apply(abs(EEGtimecourse7Hz[which(lowAQincluded==1),cond,]),2,sd,na.rm=TRUE)/sqrt(sum(lowAQincluded))
+EEGSEtime5HzL[cond,] <- apply(abs(EEGtimecourse5Hz[which(lowAQincluded==1),cond,]),2,sd,na.rm=TRUE)/sqrt(sum(lowAQincluded))
+
+EEGmeantime7HzH[cond,] <- apply(abs(EEGtimecourse7Hz[which(highAQincluded==1),cond,]),2,mean,na.rm=TRUE)
+EEGmeantime5HzH[cond,] <- apply(abs(EEGtimecourse5Hz[which(highAQincluded==1),cond,]),2,mean,na.rm=TRUE)
+
+EEGSEtime7HzH[cond,] <- apply(abs(EEGtimecourse7Hz[which(highAQincluded==1),cond,]),2,sd,na.rm=TRUE)/sqrt(sum(highAQincluded))
+EEGSEtime5HzH[cond,] <- apply(abs(EEGtimecourse5Hz[which(highAQincluded==1),cond,]),2,sd,na.rm=TRUE)/sqrt(sum(highAQincluded))
+}
+
+EEGmaskindex5L <- matrix(0,nrow=2,ncol=8000)
+EEGmaskindexSE5L <- matrix(0,nrow=2,ncol=8000)
+includedboth <- isincluded[1,]*isincluded[3,]*islowAQ
+monratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),3,])
+EEGmaskindex5L[1,] <- colMeans(20*log10(monratios))
+EEGmaskindexSE5L[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+includedboth <- isincluded[1,]*isincluded[4,]*islowAQ
+dichratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),4,])
+EEGmaskindex5L[2,] <- colMeans(20*log10(dichratios))
+EEGmaskindexSE5L[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+
+
+EEGmaskindex5H <- matrix(0,nrow=2,ncol=8000)
+EEGmaskindexSE5H <- matrix(0,nrow=2,ncol=8000)
+includedboth <- isincluded[1,]*isincluded[3,]*ishighAQ
+monratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),3,])
+EEGmaskindex5H[1,] <- colMeans(20*log10(monratios))
+EEGmaskindexSE5H[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+includedboth <- isincluded[1,]*isincluded[4,]*ishighAQ
+dichratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),4,])
+EEGmaskindex5H[2,] <- colMeans(20*log10(dichratios))
+EEGmaskindexSE5H[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+
+
+EEGmaskindex7L <- matrix(0,nrow=2,ncol=8000)
+EEGmaskindexSE7L <- matrix(0,nrow=2,ncol=8000)
+includedboth <- isincluded[2,]*isincluded[3,]*islowAQ
+monratios <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),3,])
+EEGmaskindex7L[1,] <- colMeans(20*log10(monratios))
+EEGmaskindexSE7L[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+includedboth <- isincluded[2,]*isincluded[4,]*islowAQ
+dichratios <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),4,])
+EEGmaskindex7L[2,] <- colMeans(20*log10(dichratios))
+EEGmaskindexSE7L[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+
+
+EEGmaskindex7H <- matrix(0,nrow=2,ncol=8000)
+EEGmaskindexSE7H <- matrix(0,nrow=2,ncol=8000)
+includedboth <- isincluded[2,]*isincluded[3,]*ishighAQ
+monratios <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),3,])
+EEGmaskindex7H[1,] <- colMeans(20*log10(monratios))
+EEGmaskindexSE7H[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+includedboth <- isincluded[2,]*isincluded[4,]*ishighAQ
+dichratios <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),4,])
+EEGmaskindex7H[2,] <- colMeans(20*log10(dichratios))
+EEGmaskindexSE7H[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+
+
+
+
+times <- ((1:8000)-1000)/1000
+
+for (masktype in 1:2){
+postscript(paste0("timecourse",masktype,".ps"), horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,-3,6)
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+polygon(times[c(1:8000,8000:1)],c(EEGmaskindex5L[masktype,]+EEGmaskindexSE5L[masktype,],EEGmaskindex5L[masktype,8000:1]-EEGmaskindexSE5L[masktype,8000:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8000,8000:1)],c(EEGmaskindex5H[masktype,]+EEGmaskindexSE5H[masktype,],EEGmaskindex5H[masktype,8000:1]-EEGmaskindexSE5H[masktype,8000:1]),col=colpal[3],border=NA)
+
+lines(times,EEGmaskindex5L[masktype,],col=colpal[2],lwd=2)
+lines(times,EEGmaskindex5H[masktype,],col=colpal[3],lwd=2)
+}
+
+if (plotsmoothed==1){
+U <- smooth.spline(times,EEGmaskindex5L[masktype,]+EEGmaskindexSE5L[masktype,],df=20)
+L <- smooth.spline(times,EEGmaskindex5L[masktype,]-EEGmaskindexSE5L[masktype,],df=20)
+polygon(times[c(1:8000,8000:1)],c(U$y,L$y[8000:1]),col=colpal[2],border=NA)
+
+U <- smooth.spline(times,EEGmaskindex5H[masktype,]+EEGmaskindexSE5H[masktype,],df=20)
+L <- smooth.spline(times,EEGmaskindex5H[masktype,]-EEGmaskindexSE5H[masktype,],df=20)
+polygon(times[c(1:8000,8000:1)],c(U$y,L$y[8000:1]),col=colpal[3],border=NA)
+
+L <- smooth.spline(times,EEGmaskindex5L[masktype,],df=20)
+lines(L$x,L$y,col=colpal[2],lwd=2)
+L <- smooth.spline(times,EEGmaskindex5H[masktype,],df=20)
+lines(L$x,L$y,col=colpal[3],lwd=2)
+}
+
+dev.off()
+
+
+postscript(paste0("timecourse",masktype+2,".ps"), horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+
+plotlims <- c(-1,7,-3,6)
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = ticklocsx, side = 1, at=ticklocsx)
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="Suppression ratio", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+polygon(times[c(1:8000,8000:1)],c(EEGmaskindex7L[masktype,]+EEGmaskindexSE7L[masktype,],EEGmaskindex7L[masktype,8000:1]-EEGmaskindexSE7L[masktype,8000:1]),col=colpal[2],border=NA)
+polygon(times[c(1:8000,8000:1)],c(EEGmaskindex7H[masktype,]+EEGmaskindexSE7H[masktype,],EEGmaskindex7H[masktype,8000:1]-EEGmaskindexSE7H[masktype,8000:1]),col=colpal[3],border=NA)
+
+lines(times,EEGmaskindex7L[masktype,],col=colpal[2],lwd=2)
+lines(times,EEGmaskindex7H[masktype,],col=colpal[3],lwd=2)
+}
+
+if (plotsmoothed==1){
+U <- smooth.spline(times,EEGmaskindex7L[masktype,]+EEGmaskindexSE7L[masktype,],df=20)
+L <- smooth.spline(times,EEGmaskindex7L[masktype,]-EEGmaskindexSE7L[masktype,],df=20)
+polygon(times[c(1:8000,8000:1)],c(U$y,L$y[8000:1]),col=colpal[2],border=NA)
+
+U <- smooth.spline(times,EEGmaskindex7H[masktype,]+EEGmaskindexSE7H[masktype,],df=20)
+L <- smooth.spline(times,EEGmaskindex7H[masktype,]-EEGmaskindexSE7H[masktype,],df=20)
+polygon(times[c(1:8000,8000:1)],c(U$y,L$y[8000:1]),col=colpal[3],border=NA)
+
+L <- smooth.spline(times,EEGmaskindex7L[masktype,],df=20)
+lines(L$x,L$y,col=colpal[2],lwd=2)
+L <- smooth.spline(times,EEGmaskindex7H[masktype,],df=20)
+lines(L$x,L$y,col=colpal[3],lwd=2)
+}
+
+
+dev.off()
+
+}
+}
+
+```
+
+Participants showed a wide range of scores on both the AQ and SPQ scales, which were negatively correlated (Fig 3a; R = , p < ). We again performed a median split by AQ on the EEG data, and calculated the timecourse of the EEG response and suppression ratios for each group (Figure 3b,c).
+
+Finally, we split the data set by median AQ score (see Figure 1g). Averaging across frequency, the low AQ group showed a strong increase over the first 4 seconds of the trial, whereas the high AQ group showed a much shallower change over the same time period (Figure 1h).
+
 ## Discussion
 
+Priors, Dickinson 2014 oblique effect
 
 
 ## Methods
