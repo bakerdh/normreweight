@@ -22,9 +22,9 @@ csl: elife.csl
 
 processdata <- 0  # this flag determines the amount of processing, with 4 levels:
 # 0 - do no processing, generate the pdf using existing versions of all figures
-# 1 - generate figures using the processed group data (requires XGB of storage)
-# 2 - download processed individual data and analyse (requires XGB of storage)
-# 3 - download all raw data and analyse (requires 78+GB of storage)
+# 1 - generate figures using the processed group data (requires 0.4GB of storage)
+# 2 - download processed individual data and analyse (requires 11.5GB of storage)
+# 3 - download all raw data and analyse (requires 143GB of storage)
 
 plotsmoothed <- 1 # either plot the raw data (0), or a smoothed spline (1)
 useSPQ <- 0  # optionally do the median split by SPQ for the main EEG experiment
@@ -317,16 +317,15 @@ if (!dir.exists('temp/raw/temp/')){dir.create('temp/raw/temp/')}
 if (!dir.exists('temp/MEGdata/')){dir.create('temp/MEGdata/')}
 if (!dir.exists('temp/EEGprocessed/')){dir.create('temp/EEGprocessed/')}
 if (!dir.exists('temp/pilotraw/')){dir.create('temp/pilotraw/')}
-if (!dir.exists('temp/pilotraw/temp/')){dir.create('temp/pilotraw/temp/')}
 
 targetelectrodes <- c('Oz','POz','O1','O2')
 
 osfproject <- osf_retrieve_node("ab3yv")
 componentlist <- osf_ls_nodes(osfproject)
 osffiles <- osf_ls_files(osfproject,n_max=300)
-
 pilotproject <- osf_retrieve_node("y4n5k")
 pilotfiles <- osf_ls_files(pilotproject,n_max=300)
+
 if (!file.exists('temp/headerfile.csv')){
   hid <- pmatch('headerfile.csv',as.character(unlist(pilotfiles[,1])))
   osf_download(pilotfiles[hid,], path='temp/')
@@ -335,7 +334,6 @@ hdata <- read.csv('temp/headerfile.csv')
 
 nbootstraps <- 1000    # number of bootstrap resamples for cluster correction
 timeoffset <- 1000  # time offset for determining if suppression is increasing
-
 
 ```
 
@@ -398,15 +396,18 @@ for (s in 1:101) {
     
     if (!file.exists(paste0(datadir,tarname))){
       fid <- which(pilotfiles$name==tarname)
-      osf_download(pilotfiles[fid,],datadir,progress=TRUE)
+      if (!pracma::isempty(fid)){
+      osf_download(pilotfiles[fid,],datadir,progress=TRUE)}
     }
+    if (file.exists(paste0(datadir,tarname))){
     untar(paste0(datadir,tarname),exdir=paste0(datadir,subname))
     file.remove(paste0(datadir,tarname))  # delete after unpacking
-    
+    }
     condcounter <- (1:20) * 0
     allsamples <- array(0, dim = c(10,20,64,duration*samplerate))
     d <- dir(path = paste0(datadir,subname), pattern='*.csv.gz',full.names=TRUE)
     
+    if (!pracma::isempty(d)){
     for (block in 1:length(d)) {
       EEGdata <- read.csv(d[block], header = TRUE)
       
@@ -464,7 +465,7 @@ trialsincluded <- matrix(0,nrow=14,ncol=64)
      
      # optionally delete the files after use
     # for (block in 1:length(d)){file.remove(d[block])}
-
+}
   }
 }
 }
@@ -484,7 +485,7 @@ d <- dir(path = 'temp/VilidaiteProcessed', pattern = '*.RData', full.names=TRUE)
 if (length(d)<100){
   pilotrepo <- pmatch('Processed pilot data',as.character(unlist(componentlist[,1])))
   pilotfiles <- osf_ls_files(componentlist[pilotrepo,2],n_max=300)
-  for (s in 1:length(pilotfiles)){
+  for (s in 1:nrow(pilotfiles)){
     if (!file.exists(paste0('temp/VilidaiteProcessed/',pilotfiles[s,1]))){
       osf_download(pilotfiles[s,],'temp/VilidaiteProcessed/',progress=TRUE)
     }
@@ -1125,7 +1126,7 @@ subj <- NULL
 targetamp <- NULL
 maskamp <- NULL
 i <- 0
-for (s in 1:100){
+for (s in 1:dim(EEGallconds)[1]){
   for (cond in 1:14){
     i <- i + 1
     subj[i] <- s
@@ -1175,6 +1176,7 @@ duration <- 6
     mindex <- 1 + maskF*(binwidth/samplerate)
     legaltriggers <- c(210,211,220,221,230,231,240,241)
 
+ 
  if (processdata>2){
    
 osfproject <- osf_retrieve_node("ab3yv")
@@ -1188,20 +1190,21 @@ for (datahalf in 1:length(EEGID)){
   EEGfiles <- osf_ls_files(EEGtoken,n_max=300)
   for (f in 1:nrow(EEGfiles)){
     subjcounter <- subjcounter + 1
-    print(subjcounter)
+    subID <- unlist(strsplit(EEGfiles$name[f],'.zip'))
+    print(subID)
     # first check if we have this participant's data
-    if (!file.exists(paste0('temp/EEGprocessed/S',subjcounter,'data.RData'))){
+    if (!file.exists(paste0('temp/EEGprocessed/',subID,'data.RData'))){
       # if we haven't processed the data, check if we need to download the raw data
-      if (!dir.exists(paste0('temp/raw/S',subjcounter))){
-        if (!file.exists(paste0('temp/raw/S',subjcounter,'.zip'))){
+      if (!dir.exists(paste0('temp/raw/',subID))){
+        if (!file.exists(paste0('temp/raw/',EEGfiles$name[f]))){
           osf_download(EEGfiles[f,], path='temp/raw/',progress=TRUE)
         }
-          unzip(paste0('temp/raw/S',subjcounter,'.zip'),exdir='temp/raw/')
-          file.remove(paste0('temp/raw/S',subjcounter,'.zip'))
+          unzip(paste0('temp/raw/',EEGfiles$name[f]),exdir='temp/raw/')
+          file.remove(paste0('temp/raw/',EEGfiles$name[f]))
       }
     # if necessary, process the data for this participant
       
-      d <- dir(paste0('temp/raw/S',subjcounter), pattern='*.csv.gz',full.names=TRUE)
+      d <- dir(paste0('temp/raw/',subID), pattern='*.csv.gz',full.names=TRUE)
       condcounter <- (1:4) * 0
       alltrials <- array(0,dim=c(50,4,9000,64))
       subjwaves <- array(0,dim=c(4,9000,64))
@@ -1267,14 +1270,15 @@ for (datahalf in 1:length(EEGID)){
       }
       
       
-      qdatasubj <- read.csv(paste0('temp/raw/S',subjcounter,'/questionnairedata.csv'))
-      save(file=paste0('temp/EEGprocessed/S',subjcounter,'data.RData'),list=c('qdatasubj','condcounter','trialsincluded','subjwaves','electrodes'))
+      qdatasubj <- read.csv(paste0('temp/raw/',subID,'/questionnairedata.csv'))
+      save(file=paste0('temp/EEGprocessed/',subID,'data.RData'),list=c('qdatasubj','condcounter','trialsincluded','subjwaves','electrodes'))
     }
  }
 }
    
  }
-
+ 
+    
 ```
     
 ```{r include=FALSE, results='hide'}
@@ -1289,9 +1293,9 @@ d <- dir(path = 'temp/EEGprocessed', pattern = '*.RData', full.names=TRUE)
 if (length(d)<100){
   EEGrepo <- pmatch('Processed EEG data',as.character(unlist(componentlist[,1])))
   EEGfiles <- osf_ls_files(componentlist[EEGrepo,2],n_max=300)
-  for (s in 1:length(EEGfiles)){
-    if (!file.exists(paste0('temp/EEGProcessed/',EEGfiles[s,1]))){
-      osf_download(EEGfiles[s,],'temp/EEGProcessed/',progress=TRUE)
+  for (s in 1:nrow(EEGfiles)){
+    if (!file.exists(paste0('temp/EEGprocessed/',EEGfiles[s,1]))){
+      osf_download(EEGfiles[s,],'temp/EEGprocessed/',progress=TRUE)
     }
   }
 }
@@ -2130,7 +2134,7 @@ if (processdata>1){
 if (length(d)<20){
   MEGrepo <- pmatch('Processed MEG data',as.character(unlist(componentlist[,1])))
   MEGfiles <- osf_ls_files(componentlist[MEGrepo,2],n_max=300)
-  for (s in 1:length(MEGfiles)){
+  for (s in 1:nrow(MEGfiles)){
     if (!file.exists(paste0('temp/MEGdata/',MEGfiles[s,1]))){
       osf_download(MEGfiles[s,],'temp/MEGdata/',progress=TRUE)
     }
