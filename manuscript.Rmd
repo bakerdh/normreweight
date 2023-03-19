@@ -10,13 +10,17 @@ output:
     fig_caption: yes
     toc: no
     keep_tex: yes
-  word_document: default
-  pdf_document:
+    extra_dependencies: ["lineno"]
+  bookdown::word_document2:
+    fig_caption: yes
     toc: no
+  word_document: default
   html_document: default
 bibliography: references.bib
 csl: elife.csl
 ---
+
+\linenumbers
 
 ```{r setup, include=FALSE}
 
@@ -3487,10 +3491,6 @@ if (processdata>0){
 
 For decades, neural suppression in early visual cortex has been thought to be fixed. But recent work has challenged this assumption by showing that suppression can be \emph{reweighted} based on recent history; when pairs of stimuli are repeatedly presented together, suppression between them strengthens. Here we investigate the temporal dynamics of this process using a steady-state visual evoked potential (SSVEP) paradigm that provides a time-resolved, direct index of suppression between pairs of stimuli flickering at different frequencies (5 and 7Hz). Our initial analysis of an existing EEG dataset (N=100) indicated that suppression increases substantially during the first 2-5 seconds of stimulus presentation (with some variation across stimulation frequency). We then collected new EEG data (N=100) replicating this finding for both monocular and dichoptic mask arrangements in a preregistered study designed to measure reweighting. A third experiment (N=20) used source localized MEG, and found that these effects are apparent in primary visual cortex (V1), consistent with results from neurophysiological work. Because long-standing theories propose inhibition/excitation differences in autism, we also compared reweighting between individuals with high vs low autistic traits, and with and without an autism diagnosis, across our 3 data sets (total N=220). We find no compelling differences in reweighting that are associated with autism. Our results support the normalization reweighting model, and indicate that for prolonged stimulation, increases in suppression occur on the order of 2-5 seconds after stimulus onset.
 
-# Significance statement
-
-We investigated the timecourse of a novel form of neural plasticity, normalization reweighting, using steady-state EEG in humans. We find increases in suppression during the first 2-5 seconds of stimulation, with similar dynamics for monocular and dichoptic presentation. The effects are present in primary visual cortex, and were not mediated by autistic traits. These findings demonstrate that reweighting builds up rapidly after stimulus onset, consistent with a process that adjusts the sensory response to the local environment. Normalization reweighting also has potential as a biomarker of neural function both in humans and in animal models of disease.
-
 # Introduction
 
 Suppressive interactions between neurons are ubiquitous in the nervous system, with normalization considered a canonical neuronal computation [@Carandini2011]. Yet for decades the strength of suppression was treated as fixed, due to the observation that adapting to one stimulus does not decrease its suppressive potency [@Foley1997; @Freeman2002]. This orthodoxy has been challenged by a series of innovative studies showing that normalization can be 'reweighted' by recent history [@Westrick2016; @Aschner2018; @Yiltiz2020]. When pairs of stimuli are repeatedly presented together, their neural representations come to suppress each other more strongly. Far from being fixed, normalization is therefore a dynamic process that is continuously updated by the sensory environment. Our objectives were to measure the timecourse of these changes non-invasively in the human brain, compare them across distinct suppressive pathways, and determine whether they differ as a function of autistic traits.
@@ -3507,7 +3507,7 @@ Here we perform a time-course analysis of a previously published data set, and r
 
 ## Participants
 
-Experiment 1 was completed by 100 adult participants (32 male, 68 female; mean age 21.9) in early 2015, and first reported by @Vilidaite2018. Here we reanalysed the dataset, and report the results of masking conditions not previously published. Experiment 2 was completed by 100 adult participants (23 male, 74 female, 3 other/not stated; mean age 22.1) in early 2022. Experiment 3 was completed by 10 adults (2 male, 8 female) with a clinical diagnosis of autism, and 10 control participants who were closely matched for age (means of `r t_age$estimate[1]` and `r t_age$estimate[2]`, *t* = `r format(round(abs(t_age$statistic),digits=2))`, *df* = `r t_age$parameter`, *p* = `r format(round(abs(t_age$p.value),digits=2))`) and exactly matched for gender. Procedures in Experiments 1 and 2 were approved by the ethics committee of the Department of Psychology at the University of York. Procedures for Experiment 3 were approved by the ethics committee of the York Neuroimaging Centre. All participants provided written informed consent.
+Experiment 1 was completed by 100 adult participants (32 male, 68 female; mean age 21.9) in early 2015, and first reported by @Vilidaite2018. Here we reanalysed the dataset, and report the results of masking conditions not previously published. Experiment 2 was completed by 100 adult participants (23 male, 74 female, 3 other/not stated; mean age 22.1) in early 2022. Experiment 3 was completed by 10 adults (2 male, 8 female) with a clinical diagnosis of autism, and 10 control participants who were closely matched for age (means of `r t_age$estimate[1]` and `r t_age$estimate[2]`, *t* = `r format(round(abs(t_age$statistic),digits=2))`, *df* = `r t_age$parameter`, *p* = `r format(round(abs(t_age$p.value),digits=2))`) and exactly matched for gender. Procedures in Experiments 1 and 2 were approved by the ethics committee of the Department of Psychology at the University of York. Procedures for Experiment 3 were approved by the ethics committee of the York Neuroimaging Centre. All participants provided written informed consent, and procedures were consistent with the Declaration of Helsinki.
 
 ## Apparatus and stimuli
 

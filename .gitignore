@@ -40,3 +40,5 @@ vignettes/*.pdf
 
 # ignore the temporary directory used to store data files
 /temp/
+
+.DS_Store
