@@ -20,7 +20,7 @@ csl: journal-of-vision.csl
 
 ```{r setup, include=FALSE}
 
-processdata <- 0  # this flag determines the amount of processing, with 4 levels:
+processdata <- 1  # this flag determines the amount of processing, with 4 levels:
 # 0 - do no processing, generate the pdf using existing versions of all figures
 # 1 - generate figures using the processed group data (requires 0.4GB of storage)
 # 2 - download processed individual data and analyse (requires 11.5GB of storage)
