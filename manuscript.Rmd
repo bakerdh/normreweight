@@ -2844,6 +2844,11 @@ save(file='temp/PilotIM.RData',list=c('EEGtimecourse','electrodes','EEGscalpresp
 }
 
 if (processdata>0){
+  
+   if (!file.exists('temp/PilotIM.RData')){
+      hid <- pmatch('PilotIM.RData',as.character(unlist(osffiles[,1])))
+      osf_download(osffiles[hid,],'temp/',progress=TRUE)
+ }
 load('temp/PilotIM.RData')
   
 nsubjs <- dim(EEGtimecourse)[1]
@@ -2955,6 +2960,11 @@ save(file='temp/EEGIM.RData',list=c('allheads12','allwaves','EEGtimecourse12Hz',
 }
 
 if (processdata>0){
+  
+     if (!file.exists('temp/EEGIM.RData')){
+      hid <- pmatch('EEGIM.RData',as.character(unlist(osffiles[,1])))
+      osf_download(osffiles[hid,],'temp/',progress=TRUE)
+ }
 load('temp/EEGIM.RData')
 
 nsubjs <- dim(EEGtimecourse12Hz)[1]    
@@ -3095,6 +3105,11 @@ save(file='temp/MEGIM.RData',list=c('MEGsubjwaves','MEGtimecourse12Hz','allspec'
 }
 
 if (processdata>0){
+  
+       if (!file.exists('temp/MEGIM.RData')){
+      hid <- pmatch('MEGIM.RData',as.character(unlist(osffiles[,1])))
+      osf_download(osffiles[hid,],'temp/',progress=TRUE)
+ }
 load('temp/MEGIM.RData')
 
 nsubjs <- dim(MEGtimecourse12Hz)[1]    
