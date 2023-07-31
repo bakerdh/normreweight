@@ -1,7 +1,7 @@
 ---
 title: 'Temporal Dynamics of Normalization Reweighting'
 author: | 
-  | Daniel H. Baker, Daniela Marinova, Richard Aveyard, Lydia J. Hargreaves, Alice Renton,  
+  | Daniel H. Baker, Daniela Marinova, Richard Aveyard, Lydia J. Hargreaves, Alice Renton,
   | Ruby Castellani, Phoebe Hall, Miriam Harmens, Georgia Holroyd, Beth Nicholson, 
   | Emily L. Williams, Hannah M. Hobson & Alex R. Wade
 date: "Department of Psychology, University of York, UK"
@@ -11,13 +11,9 @@ output:
     toc: no
     keep_tex: yes
     extra_dependencies: ["lineno"]
-  bookdown::word_document2:
-    fig_caption: yes
-    toc: no
-  word_document: default
-  html_document: default
 bibliography: references.bib
-csl: elife.csl
+link-citations: true
+csl: journal-of-vision.csl
 ---
 
 \linenumbers
@@ -31,6 +27,7 @@ processdata <- 0  # this flag determines the amount of processing, with 4 levels
 # 3 - download all raw data and analyse (requires 143GB of storage)
 
 plotsmoothed <- 1 # either plot the raw data (0), or a smoothed spline (1)
+fixedphase <- 0 # option to use a fixed phase sinusoidal dot product instead of Fourier analysis for the timecourses
 useSPQ <- 0  # optionally do the median split by SPQ for the main EEG experiment
 
 # reasonably compact code to check which packages are installed, install the missing ones, and activate all
@@ -340,7 +337,7 @@ timeoffset <- 1000  # time offset for determining if suppression is increasing
 
 ```
 
-```{r include=FALSE, results='hide'}
+```{r analysepilotindividual, include=FALSE, results='hide'}
 
 # single participant analysis of data from Vilidaite et al. (2018)
 
@@ -349,6 +346,8 @@ targetF <- 7
 maskF <- 5
 tindex <- (10*targetF) + 1
 mindex <- (10*maskF) + 1
+tindex2 <- (10*targetF*2) + 1
+mindex2 <- (10*maskF*2) + 1
 duration <- 14
 
     binwidth <- 1000
@@ -456,7 +455,7 @@ trialsincluded <- matrix(0,nrow=14,ncol=64)
 
 ```
 
-```{r include=FALSE, results='hide'}
+```{r analysepilotgroup, include=FALSE, results='hide'}
 
 # group level analysis of data from Vilidaite et al. (2018)
 
@@ -505,13 +504,41 @@ for (s in 1:length(d)){
 
     spec <- fft(temp[2501:12500])/10000
     EEGspectra[s,cond,] <- spec[1:(20*10)]
-    
+if (fixedphase==0){  # do normal Fourier analysis
 for (t in 1:(14000-binwidth)){
   spec <- fft(temp[t:(t+binwidth-1)])/binwidth
   for (f in 1:length(findex)){
   EEGtimecourse[s,f,cond,t] <- spec[findex[f]]
   }
-}
+}}
+    
+if (fixedphase==1){  # used fixed phase dot product with sinewave
+  # make a sine wave with the same phase as the EEG response
+  spec <- fft(temp)/length(temp)
+  synspec <- spec*0
+  synspec[(targetF*14) + 1] <- spec[(targetF*14) + 1]
+  sw1 <- Re(fft(synspec,inverse=TRUE))
+  sw1 <- sw1/max(sw1)
+  synspec <- spec*0
+  synspec[(maskF*14) + 1] <- spec[(maskF*14) + 1]
+  sw2 <- Re(fft(synspec,inverse=TRUE))  
+  sw2 <- sw2/max(sw2)
+  synspec <- spec*0
+  synspec[(2*targetF*14) + 1] <- spec[(2*targetF*14) + 1]
+  sw3 <- Re(fft(synspec,inverse=TRUE))
+  sw3 <- sw3/max(sw3)
+  synspec <- spec*0
+  synspec[(2*maskF*14) + 1] <- spec[(2*maskF*14) + 1]
+  sw4 <- Re(fft(synspec,inverse=TRUE)) 
+  sw4 <- sw4/max(sw4)
+
+for (t in 1:(14000-binwidth)){
+  EEGtimecourse[s,1,cond,t] <- mean(temp[t:(t+binwidth-1)] * sw1[t:(t+binwidth-1)]) + 0.1
+  EEGtimecourse[s,2,cond,t] <- mean(temp[t:(t+binwidth-1)] * sw2[t:(t+binwidth-1)]) + 0.1
+  EEGtimecourse[s,3,cond,t] <- mean(temp[t:(t+binwidth-1)] * sw3[t:(t+binwidth-1)]) + 0.1
+  EEGtimecourse[s,4,cond,t] <- mean(temp[t:(t+binwidth-1)] * sw4[t:(t+binwidth-1)]) + 0.1
+}}    
+    
   } 
   
 for (cond in 1:14){
@@ -536,7 +563,7 @@ save(file='temp/Pilotsummary.RData',list=c('EEGtimecourse','electrodes','EEGscal
 
 ```
 
-```{r include=FALSE, results='hide'}
+```{r plotpilotdata, include=FALSE, results='hide'}
 
 # plot data from Vilidaite et al. (2018)
 
@@ -637,6 +664,9 @@ lines(spl5a$x,spl5a$y,col='grey',lwd=2)
 spl5a <- smooth.spline(times,EEGmeantimes[1,3,],df=20)
 lines(spl5a$x,spl5a$y,col=colpal[2],lwd=2)
 }
+
+legend(2,1,c('Baseline','Target','Target+mask'),col=c('grey',colpal[1],colpal[2]),lty=1,lwd=2,box.lwd=2)
+
 text(10,0.95,'7Hz',cex=2)
 
 dev.off()
@@ -663,10 +693,11 @@ lines(times,EEGmeantimes[2,1,],col='grey')
 lines(times,EEGmeantimes[2,3,],col=colpal[2])
 }
 if (plotsmoothed==1){
-  
+ 
 spl5aU <- smooth.spline(times,EEGmeantimes[2,2,]+EEGSEtimes[2,2,],df=20)
 spl5aL <- smooth.spline(times,EEGmeantimes[2,2,]-EEGSEtimes[2,2,],df=20)
-polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[1],border=NA)
+ # use of pmin function here crops the error region at the top of the graph 
+polygon(times[c(1:13000,13000:1)],c(pmin(spl5aU$y,1),spl5aL$y[13000:1]),col=colpal[1],border=NA)
 
 spl5aU <- smooth.spline(times,EEGmeantimes[2,1,]+EEGSEtimes[2,1,],df=20)
 spl5aL <- smooth.spline(times,EEGmeantimes[2,1,]-EEGSEtimes[2,1,],df=20)
@@ -1053,34 +1084,35 @@ dev.off()
       if (sum(col2rgb(e9@paths[n]$path@rgb))<765){e9@paths[n]$path@rgb <- addalpha(e9@paths[n]$path@rgb,alpha=0.2)}}}
   
   
-  
-  pdf('Figures/VilidaiteData.pdf', bg="transparent", height = 6, width = 16)
+ if (fixedphase==0){pdf('Figures/VilidaiteData.pdf', bg="transparent", height = 15, width = 6)}
+ if (fixedphase==1){pdf('Figures/VilidaiteDataFP.pdf', bg="transparent", height = 15, width = 6)}  
   par(mar=c(0.1,0.1,0.1,0.1))
   plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=c(0,1), ylim=c(0,1)) 
 
-  aspratio <- 6/16  # this is the aspect ratio of the output pdf
-  imwidth <- 0.25
-  xstart <- 0.02
-  ystart <- 0.58
+  aspratio <- 15/6  # this is the aspect ratio of the output pdf
+  imwidth <- 0.05
+  xstart <- 0.05
+  ystart <- 0.92
   rasterImage(e1,xstart,ystart,xstart+imwidth*aspratio,ystart+imwidth)
-  xstart <- 0.22
-  ystart <- 0.58
+  xstart <- 0.55
+  ystart <- 0.92
   rasterImage(e2,xstart,ystart,xstart+imwidth*aspratio,ystart+imwidth)
 
-  grid.picture(e3,x=0.225,y=0.7,width=0.4,height=1)
-  grid.picture(e5,x=0.225,y=0.25,width=0.4,height=1)
+  grid.picture(e3,x=0.5,y=0.91,width=1)
+  grid.picture(e5,x=0.5,y=0.74,width=1)
 
-  grid.picture(e6,x=0.5,y=0.85,width=0.1,height=1)
-  grid.picture(e7,x=0.5,y=0.625,width=0.1,height=1)
-  grid.picture(e8,x=0.5,y=0.375,width=0.1,height=1)
-  grid.picture(e9,x=0.5,y=0.15,width=0.1,height=1)
-  grid.picture(e4,x=0.77,y=0.5,width=0.45,height=1)
+  grid.picture(e6,x=0.25,y=0.57,width=0.5,height=1)
+  grid.picture(e7,x=0.75,y=0.57,width=0.5,height=1)
+  grid.picture(e8,x=0.25,y=0.42,width=0.5,height=1)
+  grid.picture(e9,x=0.75,y=0.42,width=0.5,height=1)
   
-  text(-0.02,0.98,'(a)',pos=4,cex=2)
-  text(-0.02,0.45,'(b)',pos=4,cex=2)
-  text(0.41,0.98,'(c)',pos=4,cex=2)
-  text(0.57,0.98,'(d)',pos=4,cex=2)
+  grid.picture(e4,x=0.5,y=2/12,width=1)
   
+  text(-0.055,1.02,'(a)',pos=4,cex=2)
+  text(-0.055,0.85,'(b)',pos=4,cex=2)
+  text(-0.055,0.67,'(c)',pos=4,cex=2)
+  text(-0.055,0.3,'(d)',pos=4,cex=2)
+
 
   dev.off()
   
@@ -1092,7 +1124,7 @@ dev.off()
 
 ```
 
-```{r include=FALSE, results='hide'}
+```{r pilotstats, include=FALSE, results='hide'}
 
 # do statistics for Vilidiate et al. data
 
@@ -1130,9 +1162,19 @@ anovadataM <- subset(anovadata,maskcond==2)
 maskinganova2 <- ezANOVA(anovadataM, dv=maskamp, wid=subj, within=targetcond)
 gg <- maskinganova2$`Sphericity Corrections`$GGe
 
+# calculate effect size
+
+baseline <- rowMeans((20*log10(abs(EEGtimecourse[,1,1,1001:2000])/abs(EEGtimecourse[,1,3,1001:2000])) + 20*log10(abs(EEGtimecourse[,2,2,1001:2000])/abs(EEGtimecourse[,2,3,1001:2000])) + 20*log10(abs(EEGtimecourse[,3,1,1001:2000])/abs(EEGtimecourse[,3,3,1001:2000])) + 20*log10(abs(EEGtimecourse[,4,2,1001:2000])/abs(EEGtimecourse[,4,3,1001:2000])))/4)
+
+laterepoch <- rowMeans((20*log10(abs(EEGtimecourse[,1,1,3001:4000])/abs(EEGtimecourse[,1,3,3001:4000])) + 20*log10(abs(EEGtimecourse[,2,2,3001:4000])/abs(EEGtimecourse[,2,3,3001:4000])) + 20*log10(abs(EEGtimecourse[,3,1,3001:4000])/abs(EEGtimecourse[,3,3,3001:4000])) + 20*log10(abs(EEGtimecourse[,4,2,3001:4000])/abs(EEGtimecourse[,4,3,3001:4000])))/4)
+
+diff <- laterepoch-baseline
+
+piloteffectsize <- mean(diff)/sd(diff)
+
 ```
 
-```{r include=FALSE, results='hide'}
+```{r analyseEEGindividual, include=FALSE, results='hide'}
 
 # analyse raw data from EEG study
 
@@ -1250,7 +1292,7 @@ for (datahalf in 1:length(EEGID)){
     
 ```
     
-```{r include=FALSE, results='hide'}
+```{r analyseEEGgroup, include=FALSE, results='hide'}
 
 # average EEG data across participants
 
@@ -1293,6 +1335,7 @@ for (s in 1:length(d)){
     spec <- fft(temp[1501:7500])/6000
     allspec[s,cond,] <- spec[1+(1:(duration*20))]
 
+if (fixedphase==0){
 fspec1 <- NULL
 fspec2 <- NULL
 for (t in 1:(9000-binwidth)){
@@ -1302,8 +1345,25 @@ for (t in 1:(9000-binwidth)){
 }
     EEGtimecourse5Hz[s,cond,] <- fspec1
     EEGtimecourse7Hz[s,cond,] <- fspec2
+}
+    
+if (fixedphase==1){  # used fixed phase dot product with sinewave
+  # make a sine wave with the same phase as the EEG response
+  spec <- fft(temp)/length(temp)
+  synspec <- spec*0
+  synspec[(targetF*9) + 1] <- spec[(targetF*9) + 1]
+  sw1 <- Re(fft(synspec,inverse=TRUE))
+  sw1 <- sw1/max(sw1)
+  synspec <- spec*0
+  synspec[(maskF*9) + 1] <- spec[(maskF*9) + 1]
+  sw2 <- Re(fft(synspec,inverse=TRUE)) 
+  sw2 <- sw2/max(sw2)
 
-
+for (t in 1:(9000-binwidth)){
+  EEGtimecourse5Hz[s,cond,t] <- mean(temp[t:(t+binwidth-1)] * sw1[t:(t+binwidth-1)])
+  EEGtimecourse7Hz[s,cond,t] <- mean(temp[t:(t+binwidth-1)] * sw2[t:(t+binwidth-1)])
+}} 
+    
   for (ch in 1:64){
     temp <- fft(subjwaves[cond,1501:7500,ch])/6000
     allheads5[s,cond,ch] <- temp[1+(duration*targetF)]
@@ -1320,7 +1380,7 @@ save(file='temp/EEGsummary.RData',list=c('allheads5','allheads7','allspec','allw
    
 ```
 
-```{r include=FALSE, results='hide'}
+```{r plotEEGdata, include=FALSE, results='hide'}
 
 # bootstrapping and figure plotting for EEG data
 
@@ -1334,6 +1394,7 @@ load('temp/EEGsummary.RData')
 EEGpercentexcluded <- 100 - mean(100*EEGtrialsincluded[,,28:31]/48)
 
 isincluded <- matrix(rep(1,4*dim(allspec)[1]),nrow=4,ncol=dim(allspec)[1])
+if (fixedphase==0){
 for (cond in 1:4){
   # note that in allspec the DC component has been removed
   # so we don't need to add 1 to the index
@@ -1346,6 +1407,7 @@ for (cond in 1:4){
    for (s in 1:100){
      if (max(abs(EEGtimecourse5Hz[s,cond,]))>5){isincluded[cond,s] <- 0}
    }   
+}
 }
 
 if (processdata>0){
@@ -1378,12 +1440,14 @@ EEGmaskindex5 <- matrix(0,nrow=2,ncol=8000)
 EEGmaskindexSE5 <- matrix(0,nrow=2,ncol=8000)
 includedboth <- isincluded[1,]*isincluded[3,]
 monratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),3,])
-EEGmaskindex5[1,] <- colMeans(20*log10(monratios))
-EEGmaskindexSE5[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+monratios[which(monratios==0)] <- 0.001
+EEGmaskindex5[1,] <- colMeans(20*log10(monratios),na.rm=TRUE)
+EEGmaskindexSE5[1,] <- apply(20*log10(monratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
 includedboth <- isincluded[1,]*isincluded[4,]
 dichratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),4,])
-EEGmaskindex5[2,] <- colMeans(20*log10(dichratios))
-EEGmaskindexSE5[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+dichratios[which(dichratios==0)] <- 0.001
+EEGmaskindex5[2,] <- colMeans(20*log10(dichratios),na.rm=TRUE)
+EEGmaskindexSE5[2,] <- apply(20*log10(dichratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
 
 earlydataM <- monratios*0
 latedataM <- monratios*0
@@ -1391,6 +1455,8 @@ earlydataM[,1:(dim(monratios)[2]-(timeoffset/2))] <- monratios[,1:(dim(monratios
 earlydataM[,1:(timeoffset/2)] <- 0
 latedataM[,(1+(timeoffset/2)):(dim(monratios)[2])] <- monratios[,1:(dim(monratios)[2]-(timeoffset/2))]
 latedataM[1:dim(monratios)[1],(dim(monratios)[2])+(1-(timeoffset/2)):0] <- 0
+
+earlydataM[is.na(earlydataM)] <- 0
 
 if (nbootstraps>0){clustoutM5 <- clustercorrect(earlydataM,latedataM,testtype=4,paired=TRUE)}
 
@@ -1401,18 +1467,22 @@ earlydataD[,1:(timeoffset/2)] <- 0
 latedataD[,(1+(timeoffset/2)):(dim(dichratios)[2])] <- dichratios[,1:(dim(dichratios)[2]-(timeoffset/2))]
 latedataD[1:dim(dichratios)[1],(dim(dichratios)[2])+(1-(timeoffset/2)):0] <- 0
 
+earlydataD[is.na(earlydataD)] <- 0
+
 if (nbootstraps>0){clustoutD5 <- clustercorrect(earlydataD,latedataD,testtype=4,paired=TRUE)}
 
 EEGmaskindex7 <- matrix(0,nrow=2,ncol=8000)
 EEGmaskindexSE7 <- matrix(0,nrow=2,ncol=8000)
 includedboth <- isincluded[2,]*isincluded[3,]
 monratios <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),3,])
-EEGmaskindex7[1,] <- colMeans(20*log10(monratios))
-EEGmaskindexSE7[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+monratios[which(monratios==0)] <- 0.001
+EEGmaskindex7[1,] <- colMeans(20*log10(monratios),na.rm=TRUE)
+EEGmaskindexSE7[1,] <- apply(20*log10(monratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
 includedboth <- isincluded[2,]*isincluded[4,]
 dichratios <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),4,])
-EEGmaskindex7[2,] <- colMeans(20*log10(dichratios))
-EEGmaskindexSE7[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+dichratios[which(dichratios==0)] <- 0.001
+EEGmaskindex7[2,] <- colMeans(20*log10(dichratios),na.rm=TRUE)
+EEGmaskindexSE7[2,] <- apply(20*log10(dichratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
 
 earlydataM <- monratios*0
 latedataM <- monratios*0
@@ -1420,6 +1490,8 @@ earlydataM[,1:(dim(monratios)[2]-(timeoffset/2))] <- monratios[,1:(dim(monratios
 earlydataM[,1:(timeoffset/2)] <- 0
 latedataM[,(1+(timeoffset/2)):(dim(monratios)[2])] <- monratios[,1:(dim(monratios)[2]-(timeoffset/2))]
 latedataM[1:dim(monratios)[1],(dim(monratios)[2])+(1-(timeoffset/2)):0] <- 0
+
+earlydataM[is.na(earlydataM)] <- 0
 
 if (nbootstraps>0){clustoutM7 <- clustercorrect(earlydataM,latedataM,testtype=4,paired=TRUE)}
 
@@ -1430,7 +1502,14 @@ earlydataD[,1:(timeoffset/2)] <- 0
 latedataD[,(1+(timeoffset/2)):(dim(dichratios)[2])] <- dichratios[,1:(dim(dichratios)[2]-(timeoffset/2))]
 latedataD[1:dim(dichratios)[1],(dim(dichratios)[2])+(1-(timeoffset/2)):0] <- 0
 
+earlydataD[is.na(earlydataD)] <- 0
+
 if (nbootstraps>0){clustoutD7 <- clustercorrect(earlydataD,latedataD,testtype=4,paired=TRUE)}
+
+EEGmaskindex5[which(is.na(EEGmaskindex5))] <- 0
+EEGmaskindex7[which(is.na(EEGmaskindex7))] <- 0
+EEGmaskindexSE5[which(is.na(EEGmaskindexSE5))] <- 0
+EEGmaskindexSE7[which(is.na(EEGmaskindexSE7))] <- 0
 
 times <- ((1:8000)-1000)/1000
 
@@ -1450,11 +1529,11 @@ title(ylab="Amplitude (µV)", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
 polygon(c(0,6,6,0),c(-0.022,-0.022,0.02,0.02),border=NA,col=rgb(0.5,0.5,0.5))
 
 if (plotsmoothed==0){
-polygon(times[c(1:8000,8000:1)],c(EEGmeantime5Hz[1,]+EEGSEtime5Hz[1,],EEGmeantime5Hz[1,8000:1]-EEGSEtime5Hz[1,8000:1]),col=colpal[1],border=NA)
+polygon(times[c(1:8000,8000:1)],pmin(c(EEGmeantime5Hz[1,]+EEGSEtime5Hz[1,],EEGmeantime5Hz[1,8000:1]-EEGSEtime5Hz[1,8000:1]),plotlims[4]),col=colpal[1],border=NA)
 polygon(times[c(1:8000,8000:1)],c(EEGmeantime5Hz[3,]+EEGSEtime5Hz[3,],EEGmeantime5Hz[3,8000:1]-EEGSEtime5Hz[3,8000:1]),col=colpal[2],border=NA)
 polygon(times[c(1:8000,8000:1)],c(EEGmeantime5Hz[4,]+EEGSEtime5Hz[4,],EEGmeantime5Hz[4,8000:1]-EEGSEtime5Hz[4,8000:1]),col=colpal[3],border=NA)
 
-lines(times,EEGmeantime5Hz[1,],lwd=2,col=colpal[1])
+lines(times,pmin(EEGmeantime5Hz[1,],plotlims[4]),lwd=2,col=colpal[1])
 # lines(times,EEGmeantime5Hz[2,],lwd=2,col='green')
 lines(times,EEGmeantime5Hz[3,],lwd=2,col=colpal[2])
 lines(times,EEGmeantime5Hz[4,],lwd=2,col=colpal[3])
@@ -1463,7 +1542,7 @@ lines(times,EEGmeantime5Hz[4,],lwd=2,col=colpal[3])
 if (plotsmoothed==1){
 spl5aU <- smooth.spline(times,EEGmeantime5Hz[1,]+EEGSEtime5Hz[1,],df=20)
 spl5aL <- smooth.spline(times,EEGmeantime5Hz[1,]-EEGSEtime5Hz[1,],df=20)
-polygon(times[c(1:8000,8000:1)],c(spl5aU$y,spl5aL$y[8000:1]),col=colpal[1],border=NA)
+polygon(times[c(1:8000,8000:1)],pmin(c(spl5aU$y,spl5aL$y[8000:1]),plotlims[4]), col=colpal[1],border=NA)
 
 spl5cU <- smooth.spline(times,EEGmeantime5Hz[3,]+EEGSEtime5Hz[3,],df=20)
 spl5cL <- smooth.spline(times,EEGmeantime5Hz[3,]-EEGSEtime5Hz[3,],df=20)
@@ -1473,7 +1552,7 @@ spl5dU <- smooth.spline(times,EEGmeantime5Hz[4,]+EEGSEtime5Hz[4,],df=20)
 spl5dL <- smooth.spline(times,EEGmeantime5Hz[4,]-EEGSEtime5Hz[4,],df=20)
 polygon(times[c(1:8000,8000:1)],c(spl5dU$y,spl5dL$y[8000:1]),col=colpal[3],border=NA)
 
-spl5a <- smooth.spline(times,EEGmeantime5Hz[1,],df=20)
+spl5a <- smooth.spline(times,pmin(EEGmeantime5Hz[1,],plotlims[4]),df=20)
 lines(spl5a$x,spl5a$y,col=colpal[1],lwd=2)
 # spl5b <- smooth.spline(times,EEGmeantime5Hz[2,],df=20)
 # lines(spl5b$x,spl5b$y,col='green',lwd=2)
@@ -1484,7 +1563,7 @@ lines(spl5d$x,spl5d$y,col=colpal[3],lwd=2)
 
 }
 text(6,0.55,'5Hz',cex=2)
-  legend(1.25,0.2,c('Baseline','Monocular','Dichoptic'),lty=1,lwd=2,col=colpal[1:3],box.lwd=2)
+  legend(1.25,0.2,c('Target only','Monocular','Dichoptic'),lty=1,lwd=2,col=colpal[1:3],box.lwd=2)
 dev.off()
 
 postscript("timecourse3.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
@@ -1947,7 +2026,8 @@ dev.off()
   
   
   
-  pdf('Figures/EEGdata.pdf', bg="transparent", height = 6, width = 15)
+if (fixedphase==0){pdf('Figures/EEGdata.pdf', bg="transparent", height = 6, width = 15)}
+if (fixedphase==1){pdf('Figures/EEGdataFP.pdf', bg="transparent", height = 6, width = 15)}
   par(mar=c(0.1,0.1,0.1,0.1))
   plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=c(0,1), ylim=c(0,1)) 
 
@@ -1987,7 +2067,7 @@ dev.off()
  
 ```
 
-```{r include=FALSE, results='hide'}
+```{r EEGstats, include=FALSE, results='hide'}
 
 # statistical testing
 
@@ -2071,9 +2151,19 @@ t5b <- t.test(abs(baseline5$targetamp),abs(dich5$targetamp),paired=TRUE)
 t5c <- t.test(abs(mon5$targetamp),abs(dich5$targetamp),paired=TRUE)
 
 
+# calculate effect size
+
+baseline <- rowMeans((20*log10(abs(EEGtimecourse5Hz[,1,1001:2000])/abs(EEGtimecourse5Hz[,3,1001:2000])) + 20*log10(abs(EEGtimecourse5Hz[,1,1001:2000])/abs(EEGtimecourse5Hz[,4,1001:2000])) + 20*log10(abs(EEGtimecourse7Hz[,2,1001:2000])/abs(EEGtimecourse7Hz[,3,1001:2000])) + 20*log10(abs(EEGtimecourse7Hz[,2,1001:2000])/abs(EEGtimecourse7Hz[,4,1001:2000])))/4)
+
+laterepoch <- rowMeans((20*log10(abs(EEGtimecourse5Hz[,1,3001:4000])/abs(EEGtimecourse5Hz[,3,3001:4000])) + 20*log10(abs(EEGtimecourse5Hz[,1,3001:4000])/abs(EEGtimecourse5Hz[,4,3001:4000])) + 20*log10(abs(EEGtimecourse7Hz[,2,3001:4000])/abs(EEGtimecourse7Hz[,3,3001:4000])) + 20*log10(abs(EEGtimecourse7Hz[,2,3001:4000])/abs(EEGtimecourse7Hz[,4,3001:4000])))/4)
+
+diff <- laterepoch-baseline
+
+EEGeffectsize <- mean(diff)/sd(diff)
+
 ```
 
-```{r include=FALSE, results='hide'}
+```{r analyseMEGgroup, include=FALSE, results='hide'}
 
 # combine MEG data across participants
 
@@ -2149,7 +2239,8 @@ if (length(d)<20){
       MEGsubjwaves[s,cond,] <- temp
       spec <- fft(temp[1501:7506])/6006
       allspec[s,cond,] <- spec[1+(1:(duration*20))]
-      
+
+if (fixedphase==0){            
         fspec1 <- NULL
         fspec2 <- NULL
         for (t in 1:(9009-binwidth)){
@@ -2160,6 +2251,24 @@ if (length(d)<20){
 
         MEGtimecourse5Hz[s,cond,] <- fspec1
         MEGtimecourse7Hz[s,cond,] <- fspec2
+}
+      
+if (fixedphase==1){  # used fixed phase dot product with sinewave
+  # make a sine wave with the same phase as the EEG response
+  spec <- fft(temp)/length(temp)
+  synspec <- spec*0
+  synspec[(targetF*8) + 1] <- spec[(targetF*8) + 1]
+  sw1 <- Re(fft(synspec,inverse=TRUE))
+  sw1 <- sw1/max(sw1)
+  synspec <- spec*0
+  synspec[(maskF*8) + 1] <- spec[(maskF*8) + 1]
+  sw2 <- Re(fft(synspec,inverse=TRUE))
+  sw2 <- sw2/max(sw2)
+  
+for (t in 1:(9000-binwidth)){
+  MEGtimecourse5Hz[s,cond,t] <- mean(temp[t:(t+binwidth-1)] * sw1[t:(t+binwidth-1)])
+  MEGtimecourse7Hz[s,cond,t] <- mean(temp[t:(t+binwidth-1)] * sw2[t:(t+binwidth-1)])
+}} 
         
       }   
       }    
@@ -2173,7 +2282,7 @@ if (length(d)<20){
 
 ```
     
-```{r include=FALSE, results='hide'}
+```{r plotMEGdata, include=FALSE, results='hide'}
 
 # plot MEG figure
 
@@ -2187,7 +2296,8 @@ MEGpercentexcluded <- 100 - (100*mean(MEGtrialsincluded)/48)
 
 if (processdata>0){
   
-  isincluded <- array(1, dim=c(4,dim(allspec)[1]))
+isincluded <- array(1, dim=c(4,dim(allspec)[1]))
+if (fixedphase==0){
     for (cond in 1:4){
       # note that in allspec the DC component has been removed
       # so we don't need to add 1 to the index
@@ -2201,6 +2311,7 @@ if (processdata>0){
         if (max(abs(MEGtimecourse5Hz[s,cond,]))>5){isincluded[cond,s] <- 0}
       }   
     }
+  }
   
   MEGmeantime5Hz <- array(0,dim=c(4,8008))
   MEGmeantime7Hz <- array(0,dim=c(4,8008))
@@ -2226,12 +2337,12 @@ if (processdata>0){
 
     includedboth <- isincluded[1,]*isincluded[3,]
     monratios <- abs(MEGtimecourse5Hz[which(includedboth==1),1,])/abs(MEGtimecourse5Hz[which(includedboth==1),3,])
-    MEGmaskindex5[1,] <- colMeans(20*log10(monratios))
-    MEGmaskindexSE5[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+    MEGmaskindex5[1,] <- colMeans(20*log10(monratios),na.rm=TRUE)
+    MEGmaskindexSE5[1,] <- apply(20*log10(monratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
     includedboth <- isincluded[1,]*isincluded[4,]
     dichratios <- abs(MEGtimecourse5Hz[which(includedboth==1),1,])/abs(MEGtimecourse5Hz[which(includedboth==1),4,])
-    MEGmaskindex5[2,] <- colMeans(20*log10(dichratios))
-    MEGmaskindexSE5[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+    MEGmaskindex5[2,] <- colMeans(20*log10(dichratios),na.rm=TRUE)
+    MEGmaskindexSE5[2,] <- apply(20*log10(dichratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
     
     earlydataM <- monratios*0
 latedataM <- monratios*0
@@ -2239,6 +2350,8 @@ earlydataM[,1:(dim(monratios)[2]-(timeoffset/2))] <- monratios[,1:(dim(monratios
 earlydataM[,1:(timeoffset/2)] <- 0
 latedataM[,(1+(timeoffset/2)):(dim(monratios)[2])] <- monratios[,1:(dim(monratios)[2]-(timeoffset/2))]
 latedataM[1:dim(monratios)[1],(dim(monratios)[2])+(1-(timeoffset/2)):0] <- 0
+
+earlydataM[is.na(earlydataM)] <- 0
 
 if (nbootstraps>0){clustoutM5 <- clustercorrect(earlydataM,latedataM,testtype=4,paired=TRUE)}
 
@@ -2248,6 +2361,8 @@ earlydataD[,1:(dim(dichratios)[2]-(timeoffset/2))] <- dichratios[,1:(dim(dichrat
 earlydataD[,1:(timeoffset/2)] <- 0
 latedataD[,(1+(timeoffset/2)):(dim(dichratios)[2])] <- dichratios[,1:(dim(dichratios)[2]-(timeoffset/2))]
 latedataD[1:dim(dichratios)[1],(dim(dichratios)[2])+(1-(timeoffset/2)):0] <- 0
+
+earlydataD[is.na(earlydataD)] <- 0
 
 if (nbootstraps>0){clustoutD5 <- clustercorrect(earlydataD,latedataD,testtype=4,paired=TRUE)}
 
@@ -2267,6 +2382,8 @@ earlydataM[,1:(timeoffset/2)] <- 0
 latedataM[,(1+(timeoffset/2)):(dim(monratios)[2])] <- monratios[,1:(dim(monratios)[2]-(timeoffset/2))]
 latedataM[1:dim(monratios)[1],(dim(monratios)[2])+(1-(timeoffset/2)):0] <- 0
 
+earlydataM[is.na(earlydataM)] <- 0
+
 if (nbootstraps>0){clustoutM7 <- clustercorrect(earlydataM,latedataM,testtype=4,paired=TRUE)}
 
 earlydataD <- dichratios*0
@@ -2276,7 +2393,15 @@ earlydataD[,1:(timeoffset/2)] <- 0
 latedataD[,(1+(timeoffset/2)):(dim(dichratios)[2])] <- dichratios[,1:(dim(dichratios)[2]-(timeoffset/2))]
 latedataD[1:dim(dichratios)[1],(dim(dichratios)[2])+(1-(timeoffset/2)):0] <- 0
 
+earlydataD[is.na(earlydataD)] <- 0
+
 if (nbootstraps>0){clustoutD7 <- clustercorrect(earlydataD,latedataD,testtype=4,paired=TRUE)}
+
+MEGmaskindex5[which(is.na(MEGmaskindex5))] <- 0
+MEGmaskindex7[which(is.na(MEGmaskindex7))] <- 0
+MEGmaskindexSE5[which(is.na(MEGmaskindexSE5))] <- 0
+MEGmaskindexSE7[which(is.na(MEGmaskindexSE7))] <- 0
+
 
   times <- ((1:8008)-1001)/1001
   
@@ -2331,7 +2456,7 @@ if (nbootstraps>0){clustoutD7 <- clustercorrect(earlydataD,latedataD,testtype=4,
 
   }
   text(6,2.8,'5Hz',cex=2)
-  legend(1.25,1,c('Baseline','Monocular','Dichoptic'),lty=1,lwd=2,col=colpal[1:3],box.lwd=2)
+  legend(1.25,1,c('Target only', 'Monocular','Dichoptic'), lty=1,lwd=2,col=colpal[1:3],box.lwd=2)
   dev.off()
   
   postscript("timecourse2.ps", horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
@@ -2595,7 +2720,8 @@ if (nbootstraps>0){clustoutD7 <- clustercorrect(earlydataD,latedataD,testtype=4,
   e2 <- readTIFF('temp/LH.tif')
   e3 <- readTIFF('temp/RH.tif')
   
-  pdf('Figures/MEGdata.pdf', bg="transparent", height = 6, width = 15)
+if (fixedphase==0){pdf('Figures/MEGdata.pdf', bg="transparent", height = 6, width = 15)}
+if (fixedphase==1){pdf('Figures/MEGdataFP.pdf', bg="transparent", height = 6, width = 15)}
   par(mar=c(0.1,0.1,0.1,0.1))
   plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=c(0,1), ylim=c(0,1)) 
   
@@ -2634,9 +2760,459 @@ if (nbootstraps>0){clustoutD7 <- clustercorrect(earlydataD,latedataD,testtype=4,
   
 }
 
+# calculate effect size
+
+baseline <- rowMeans((20*log10(abs(MEGtimecourse5Hz[,1,1002:2003])/abs(MEGtimecourse5Hz[,3,1002:2003])) + 20*log10(abs(MEGtimecourse5Hz[,1,1002:2003])/abs(MEGtimecourse5Hz[,4,1002:2003])) + 20*log10(abs(MEGtimecourse7Hz[,2,1002:2003])/abs(MEGtimecourse7Hz[,3,1002:2003])) + 20*log10(abs(MEGtimecourse7Hz[,2,1002:2003])/abs(MEGtimecourse7Hz[,4,1002:2003])))/4)
+
+laterepoch <- rowMeans((20*log10(abs(MEGtimecourse5Hz[,1,3004:4005])/abs(MEGtimecourse5Hz[,3,3004:4005])) + 20*log10(abs(MEGtimecourse5Hz[,1,3004:4005])/abs(MEGtimecourse5Hz[,4,3004:4005])) + 20*log10(abs(MEGtimecourse7Hz[,2,3004:4005])/abs(MEGtimecourse7Hz[,3,3004:4005])) + 20*log10(abs(MEGtimecourse7Hz[,2,3004:4005])/abs(MEGtimecourse7Hz[,4,3004:4005])))/4)
+
+diff <- laterepoch-baseline
+
+MEGeffectsize <- mean(diff)/sd(diff)
+
 ```
 
-```{r include=FALSE, results='hide'}
+```{r runIManalysis, include=FALSE, results='hide'}
+
+# group level analysis of data from Vilidaite et al. (2018)
+
+samplerate <- 1000
+targetF <- 7
+maskF <- 5
+tindex <- (10*(targetF+maskF)) + 1
+duration <- 14
+
+binwidth <- 1000
+findex <- 1 + (targetF+maskF)*(binwidth/samplerate)
+
+condlist <- c(6,8,13)
+
+if (processdata>1){
+
+d <- dir(path = 'temp/VilidaiteProcessed', pattern = '*.RData', full.names=TRUE)
+
+# download any missing data files from osf
+if (length(d)<100){
+  pilotrepo <- pmatch('Processed pilot data',as.character(unlist(componentlist[,1])))
+  pilotfiles <- osf_ls_files(componentlist[pilotrepo,2],n_max=300)
+  for (s in 1:nrow(pilotfiles)){
+    if (!file.exists(paste0('temp/VilidaiteProcessed/',pilotfiles[s,1]))){
+      osf_download(pilotfiles[s,],'temp/VilidaiteProcessed/',progress=TRUE)
+    }
+  }
+}
+
+d <- dir(path = 'temp/VilidaiteProcessed', pattern = '*.RData', full.names=TRUE)
+
+EEGtimecourse <- array(0,dim=c(length(d),3,13000))
+# EEGspectra <- array(0,dim=c(length(d),3,20*10))
+EEGscalpresps <- array(0,dim=c(length(d),14,64))
+# EEGallconds <- array(0,dim=c(length(d),4,14))
+alltrialcounts <- array(0,dim=c(length(d),14,64))
+
+for (s in 1:length(d)){
+  load(d[s])
+  targetchannels <- match(targetelectrodes, electrodes) - 2
+  alltrialcounts[s,,] <- trialsincluded
+  
+  for (cond in 1:3){
+    temp <- colMeans(meanwaveforms[condlist[cond],targetchannels,],na.rm=TRUE)
+    nainds <- which(is.na(temp))   # find occasional NaN values in the waveform
+    temp[nainds] <- 0   # replace with zeros
+
+for (t in 1:(14000-binwidth)){
+  spec <- fft(temp[t:(t+binwidth-1)])/binwidth
+  EEGtimecourse[s,cond,t] <- spec[findex]
+}
+} 
+  
+for (cond in 1:14){
+  for (ch in 1:64){
+     temp <- meanwaveforms[cond,ch,]
+    nainds <- which(is.na(temp))   # find occasional NaN values in the waveform
+    temp[nainds] <- 0   # replace with zeros
+   spec <- fft(temp[2501:12500])/10000
+   EEGscalpresps[s,cond,ch] <- spec[((targetF+maskF)*10)+1]
+
+  }
+}  
+
+}
+
+save(file='temp/PilotIM.RData',list=c('EEGtimecourse','electrodes','EEGscalpresps','alltrialcounts'))
+
+}
+
+if (processdata>0){
+load('temp/PilotIM.RData')
+  
+nsubjs <- dim(EEGtimecourse)[1]
+EEGmeantimes <- array(0,dim=c(3,13000))
+EEGSEtimes <- array(0,dim=c(3,13000))
+EEGmeanscalp <- abs(apply(abs(EEGscalpresps),2:3,mean))
+
+for (cond in 1:3){
+EEGmeantimes[cond,] <- apply(abs(EEGtimecourse[,cond,]),2,mean,na.rm=TRUE)
+EEGSEtimes[cond,] <- apply(abs(EEGtimecourse[,cond,]),2,sd,na.rm=TRUE)/sqrt(nsubjs)
+}
+
+EEGmaskindices <- colMeans(20*log10(abs(EEGtimecourse[,3,])/abs(EEGtimecourse[,2,])))
+EEGmaskSE <- apply(20*log10(abs(EEGtimecourse[,3,])/abs(EEGtimecourse[,2,])),2,sd)/sqrt(nsubjs)
+
+times <- (-999:12000)/1000
+
+
+postscript('pilotIM.ps', horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+  
+plotlims <- c(-1,12,-3,6)
+ticklocsx <- c(-1,seq(0,12,2))    # locations of tick marks on y axis
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = seq(0,12,2), side = 1, at=seq(0,12,2))
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="12Hz response", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,11,11,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,12),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+  
+  polygon(times[c(1:13000,13000:1)],c(EEGmaskindices+EEGmaskSE,EEGmaskindices[13000:1]-EEGmaskSE[13000:1]),col=colpal[1],border=NA)
+
+lines(times,EEGmaskindices,col=colpal[1],lwd=4)
+}
+
+if (plotsmoothed==1){
+
+  spl5aU <- smooth.spline(times,EEGmaskindices+EEGmaskSE,df=20)
+spl5aL <- smooth.spline(times,EEGmaskindices-EEGmaskSE,df=20)
+polygon(times[c(1:13000,13000:1)],c(spl5aU$y,spl5aL$y[13000:1]),col=colpal[1],border=NA)
+
+spl5a <- smooth.spline(times,EEGmaskindices,df=20)
+lines(spl5a$x,spl5a$y,col=colpal[1],lwd=6)
+}
+
+text(9,5.5,'Pilot EEG data',cex=1.5)
+dev.off()
+
+}
+
+duration <- 6
+
+if (processdata>1){
+
+d <- dir(path = 'temp/EEGprocessed', pattern = '*.RData', full.names=TRUE)
+
+# download any missing data files from osf
+if (length(d)<100){
+  EEGrepo <- pmatch('Processed EEG data',as.character(unlist(componentlist[,1])))
+  EEGfiles <- osf_ls_files(componentlist[EEGrepo,2],n_max=300)
+  for (s in 1:nrow(EEGfiles)){
+    if (!file.exists(paste0('temp/EEGprocessed/',EEGfiles[s,1]))){
+      osf_download(EEGfiles[s,],'temp/EEGprocessed/',progress=TRUE)
+    }
+  }
+}
+
+d <- dir(path = 'temp/EEGprocessed', pattern = '*.RData', full.names=TRUE)
+
+EEGtimecourse12Hz <- array(0,dim=c(length(d),4,8000))
+allwaves <- array(0,dim=c(length(d),4,9000))
+allheads12 <- array(0,dim=c(length(d),4,64))
+EEGtrialsincluded <- array(0,dim=c(length(d),4,64))
+
+for (s in 1:length(d)){
+  load(d[s])
+  targetchannels <- match(targetelectrodes, electrodes) - 2
+  EEGtrialsincluded[s,,] <- trialsincluded
+  for (cond in 1:4){
+    temp <- rowMeans(subjwaves[cond,,targetchannels],na.rm=TRUE)
+    nainds <- which(is.na(temp))   
+    temp[nainds] <- 0   # replace with zeros
+    allwaves[s,cond,] <- temp - mean(temp)
+
+fspec1 <- NULL
+for (t in 1:(9000-binwidth)){
+  spec <- fft(temp[t:(t+binwidth-1)])/binwidth
+  fspec1[t] <- spec[findex]
+}
+    EEGtimecourse12Hz[s,cond,] <- fspec1
+
+  for (ch in 1:64){
+    temp <- fft(subjwaves[cond,1501:7500,ch])/6000
+    allheads12[s,cond,ch] <- temp[1+(duration*(targetF+maskF))]
+
+  }
+  } 
+
+}
+
+save(file='temp/EEGIM.RData',list=c('allheads12','allwaves','EEGtimecourse12Hz','electrodes','EEGtrialsincluded'))
+}
+
+if (processdata>0){
+load('temp/EEGIM.RData')
+
+nsubjs <- dim(EEGtimecourse12Hz)[1]    
+mon1 <- 20*log10(abs(EEGtimecourse12Hz[,3,])/abs(EEGtimecourse12Hz[,1,]))
+mon2 <- 20*log10(abs(EEGtimecourse12Hz[,3,])/abs(EEGtimecourse12Hz[,2,]))
+meanmon <- (mon1 + mon2)/2
+meanmon[which(is.infinite(meanmon))] <- 0
+EEGmaskindicesMon <- colMeans(meanmon)
+EEGmaskSEMon <- apply(meanmon,2,sd)/sqrt(nsubjs)
+
+dich1 <- 20*log10(abs(EEGtimecourse12Hz[,4,])/abs(EEGtimecourse12Hz[,1,]))
+dich2 <- 20*log10(abs(EEGtimecourse12Hz[,4,])/abs(EEGtimecourse12Hz[,2,]))
+meandich <- (dich1 + dich2)/2
+meandich[which(is.infinite(meandich))] <- 0
+EEGmaskindicesDich <- colMeans(meandich)
+EEGmaskSEDich <- apply(meandich,2,sd)/sqrt(nsubjs)
+
+times <- (-999:7000)/1000
+
+postscript('EEG_IM.ps', horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+ 
+plotlims <- c(-1,7,-3,6)
+ticklocsx <- seq(-1,7,1)    # locations of tick marks on y axis
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = seq(-1,7,1), side = 1, at=seq(-1,7,1))
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="12Hz response", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+  
+  polygon(times[c(1:8000,8000:1)],c(EEGmaskindicesMon+EEGmaskSEMon,EEGmaskindicesMon[8000:1]-EEGmaskSEMon[8000:1]),col=colpal[2],border=NA)
+  polygon(times[c(1:8000,8000:1)],c(EEGmaskindicesDich+EEGmaskSEDich,EEGmaskindicesDich[8000:1]-EEGmaskSEDich[8000:1]),col=colpal[3],border=NA)
+
+lines(times,EEGmaskindicesMon,col=colpal[2],lwd=4)
+lines(times,EEGmaskindicesDich,col=colpal[3],lwd=4)
+}
+
+if (plotsmoothed==1){
+
+spl5aU <- smooth.spline(times,EEGmaskindicesMon+EEGmaskSEMon,df=20)
+spl5aL <- smooth.spline(times,EEGmaskindicesMon-EEGmaskSEMon,df=20)
+polygon(times[c(1:8000,8000:1)],c(spl5aU$y,spl5aL$y[8000:1]),col=colpal[2],border=NA)
+
+spl5aU <- smooth.spline(times,EEGmaskindicesDich+EEGmaskSEDich,df=20)
+spl5aL <- smooth.spline(times,EEGmaskindicesDich-EEGmaskSEDich,df=20)
+polygon(times[c(1:8000,8000:1)],c(spl5aU$y,spl5aL$y[8000:1]),col=colpal[3],border=NA)
+
+
+spl5a <- smooth.spline(times,EEGmaskindicesMon,df=20)
+lines(spl5a$x,spl5a$y,col=colpal[2],lwd=6)
+
+spl5a <- smooth.spline(times,EEGmaskindicesDich,df=20)
+lines(spl5a$x,spl5a$y,col=colpal[3],lwd=6)
+
+}
+text(5.5,5.5,'EEG data',cex=1.5)
+
+legend(1.5,-0.5,c('Monocular','Dichoptic'),lwd=4,col=colpal[c(2,3)],bty='n')
+
+dev.off()
+
+}
+
+samplerate <- 1001
+binwidth <- 1001
+findex <- 1 + (targetF+maskF)*(binwidth/samplerate)
+
+if (processdata>1){
+
+d <- dir(path = 'temp/MEGdata', pattern = '*.RData', full.names=TRUE)
+
+  # download any missing data files from osf
+if (length(d)<20){
+  MEGrepo <- pmatch('Processed MEG data',as.character(unlist(componentlist[,1])))
+  MEGfiles <- osf_ls_files(componentlist[MEGrepo,2],n_max=300)
+  for (s in 1:nrow(MEGfiles)){
+    if (!file.exists(paste0('temp/MEGdata/',MEGfiles[s,1]))){
+      osf_download(MEGfiles[s,],'temp/MEGdata/',progress=TRUE)
+    }
+  }
+}
+
+d <- dir(path = 'temp/MEGdata', pattern = '*.RData', full.names=TRUE)
+
+MEGtimecourse12Hz <- array(0,dim=c(length(d),4,8008))
+MEGsubjwaves <- array(0,dim=c(length(d),4,9009))
+allspec <- array(0,dim=c(length(d),4,(duration*20)))
+MEGtrialsincluded <- array(0,dim=c(length(d),4))
+
+for (s in 1:length(d)){
+  load(d[s])
+
+  for (cond in 1:4){
+          
+     temp <- alltrials[cond,1:trialcounter[1,cond],]
+          spec12 <- NULL
+          for (t in 1:trialcounter[1,cond]){
+            spec <- fft(temp[t,1501:7506])/6006
+            spec12[t] <- spec[(targetF+maskF)*duration+1]
+          }
+        spec12[which(is.na(spec12))] <- 0
+
+      if (length(which(abs(spec12)>0))>2){  
+      tempxy <- data.frame(Re(spec12),Im(spec12))
+      D12 <- sqrt(mahalanobis(tempxy,colMeans(tempxy),cov(tempxy)))
+      i <- which(D12<3)
+      MEGtrialsincluded[s,cond] <- length(i)
+      temp <- colMeans(temp[i,])
+      MEGsubjwaves[s,cond,] <- temp
+      spec <- fft(temp[1501:7506])/6006
+      allspec[s,cond,] <- spec[1+(1:(duration*20))]
+
+        
+        fspec1 <- NULL
+        fspec2 <- NULL
+        for (t in 1:(9009-binwidth)){
+          spec <- fft(temp[t:(t+binwidth-1)])/binwidth
+          fspec1[t] <- spec[findex]
+        }
+
+        MEGtimecourse12Hz[s,cond,] <- fspec1
+
+
+        }
+  }
+}
+
+save(file='temp/MEGIM.RData',list=c('MEGsubjwaves','MEGtimecourse12Hz','allspec','MEGtrialsincluded'))
+
+}
+
+if (processdata>0){
+load('temp/MEGIM.RData')
+
+nsubjs <- dim(MEGtimecourse12Hz)[1]    
+mon1 <- 20*log10(abs(MEGtimecourse12Hz[,3,])/abs(MEGtimecourse12Hz[,1,]))
+mon2 <- 20*log10(abs(MEGtimecourse12Hz[,3,])/abs(MEGtimecourse12Hz[,2,]))
+meanmon <- (mon1 + mon2)/2
+meanmon[which(is.infinite(meanmon))] <- 0
+MEGmaskindicesMon <- colMeans(meanmon)
+MEGmaskSEMon <- apply(meanmon,2,sd)/sqrt(nsubjs)
+
+dich1 <- 20*log10(abs(MEGtimecourse12Hz[,4,])/abs(MEGtimecourse12Hz[,1,]))
+dich2 <- 20*log10(abs(MEGtimecourse12Hz[,4,])/abs(MEGtimecourse12Hz[,2,]))
+meandich <- (dich1 + dich2)/2
+meandich[which(is.infinite(meandich))] <- 0
+MEGmaskindicesDich <- colMeans(meandich)
+MEGmaskSEDich <- apply(meandich,2,sd)/sqrt(nsubjs)
+
+times <- (-999:7008)/1000
+
+postscript('MEG_IM.ps', horizontal = FALSE, onefile = FALSE, paper = "special", height = 5, width = 5)
+ 
+plotlims <- c(-1,7,-3,6)
+ticklocsx <- seq(-1,7,1)    # locations of tick marks on y axis
+ticklocsy <- seq(-3,6,3)    # locations of tick marks on y axis
+plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=plotlims[1:2], ylim=plotlims[3:4])
+axis(1, at=ticklocsx, tck=0.01, lab=F, lwd=2)
+axis(2, at=ticklocsy, tck=0.01, lab=F, lwd=2)
+mtext(text = seq(-1,7,1), side = 1, at=seq(-1,7,1))
+mtext(text = c(expression(sqrt(2)/2),'1',expression(sqrt(2)),'2'), side = 2, at=ticklocsy, line=0.2, las=1)
+title(xlab="Time (s)", col.lab=rgb(0,0,0), line=1.2, cex.lab=1.5)    
+title(ylab="12Hz response", col.lab=rgb(0,0,0), line=1.5, cex.lab=1.5)
+
+polygon(c(0,6,6,0),c(-3.4,-3.4,-2.6,-2.6),border=NA,col=rgb(0.5,0.5,0.5))
+
+lines(c(-1,7),c(0,0),lty=2)
+
+if (plotsmoothed==0){
+  
+  polygon(times[c(1:8008,8008:1)],c(MEGmaskindicesMon+MEGmaskSEMon,MEGmaskindicesMon[8008:1]-MEGmaskSEMon[8008:1]),col=colpal[2],border=NA)
+  polygon(times[c(1:8008,8008:1)],c(MEGmaskindicesDich+MEGmaskSEDich,MEGmaskindicesDich[8008:1]-MEGmaskSEDich[8008:1]),col=colpal[3],border=NA)
+
+lines(times,MEGmaskindicesMon,col=colpal[2],lwd=4)
+lines(times,MEGmaskindicesDich,col=colpal[3],lwd=4)
+}
+
+if (plotsmoothed==1){
+
+spl5aU <- smooth.spline(times,MEGmaskindicesMon+MEGmaskSEMon,df=20)
+spl5aL <- smooth.spline(times,MEGmaskindicesMon-MEGmaskSEMon,df=20)
+polygon(times[c(1:8008,8008:1)],c(spl5aU$y,spl5aL$y[8008:1]),col=colpal[2],border=NA)
+
+spl5aU <- smooth.spline(times,MEGmaskindicesDich+MEGmaskSEDich,df=20)
+spl5aL <- smooth.spline(times,MEGmaskindicesDich-MEGmaskSEDich,df=20)
+polygon(times[c(1:8008,8008:1)],c(spl5aU$y,spl5aL$y[8008:1]),col=colpal[3],border=NA)
+
+
+spl5a <- smooth.spline(times,MEGmaskindicesMon,df=20)
+lines(spl5a$x,spl5a$y,col=colpal[2],lwd=6)
+
+spl5a <- smooth.spline(times,MEGmaskindicesDich,df=20)
+lines(spl5a$x,spl5a$y,col=colpal[3],lwd=6)
+
+}
+text(5.5,5.5,'MEG data',cex=1.5)
+
+legend(1.5,-0.5,c('Monocular','Dichoptic'),lwd=4,col=colpal[c(2,3)],bty='n')
+
+dev.off()
+
+
+
+  PostScriptTrace(paste('pilotIM.ps',sep=''))
+  e1 <- readPicture('pilotIM.ps.xml')
+  for (n in 1:length(e1@paths)){
+    temp <- class(e1@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e1@paths[n]$path@rgb))<765){e1@paths[n]$path@rgb <- addalpha(e1@paths[n]$path@rgb,alpha=0.2)}}}
+  
+  PostScriptTrace(paste('EEG_IM.ps',sep=''))
+  e2 <- readPicture('EEG_IM.ps.xml')
+  for (n in 1:length(e2@paths)){
+    temp <- class(e2@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e2@paths[n]$path@rgb))<765){e2@paths[n]$path@rgb <- addalpha(e2@paths[n]$path@rgb,alpha=0.2)}}}
+  
+  PostScriptTrace(paste('MEG_IM.ps',sep=''))
+  e3 <- readPicture('MEG_IM.ps.xml')
+  for (n in 1:length(e3@paths)){
+    temp <- class(e3@paths[n]$path)[1]
+    if (pmatch(temp,"PictureFill",nomatch=0)){
+      if (sum(col2rgb(e3@paths[n]$path@rgb))<765){e3@paths[n]$path@rgb <- addalpha(e3@paths[n]$path@rgb,alpha=0.2)}}}
+      
+if (fixedphase==0){pdf('Figures/IMfigure.pdf', bg="transparent", height = 5, width = 18)}
+
+  par(mar=c(0.1,0.1,0.1,0.1))
+  plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=c(0,1), ylim=c(0,1))
+  
+  grid.picture(e1,x=1/6,y=1/2,width=0.33,height=1)
+  grid.picture(e2,x=3/6,y=1/2,width=0.33,height=1)
+  grid.picture(e3,x=5/6,y=1/2,width=0.33,height=1)
+  
+  text(-0.04,0.97,'(a)',pos=4,cex=3)
+  text(0.32,0.97,'(b)',pos=4,cex=3)
+  text(0.68,0.97,'(c)',pos=4,cex=3)
+
+  dev.off()
+  
+  file.remove(c('pilotIM.ps','EEG_IM.ps','MEG_IM.ps'))
+  file.remove(c('pilotIM.ps.xml','EEG_IM.ps.xml','MEG_IM.ps.xml'))
+
+
+}
+
+
+
+```
+
+```{r runAQanalysis, include=FALSE, results='hide'}
 
 # AQ analysis and figure plotting
 
@@ -2842,8 +3418,8 @@ if (processdata>0){
   monratios3 <- abs(EEGtimecourse[which(includedboth==1),4,2,])/abs(EEGtimecourse[which(includedboth==1),4,3,])
   monratios4 <- abs(EEGtimecourse[which(includedboth==1),3,1,])/abs(EEGtimecourse[which(includedboth==1),3,3,])
   monratios <- (20*log10(monratios1) + 20*log10(monratios2) + 20*log10(monratios3) + 20*log10(monratios4))/4
-  PilotmaskindexL <- colMeans(monratios)
-  PilotmaskindexSEL <- apply(monratios,2,sd)/sqrt(sum(includedboth))
+  PilotmaskindexL <- colMeans(monratios,na.rm=TRUE)
+  PilotmaskindexSEL <- apply(monratios,2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
 
   lowgroup <- monratios
   
@@ -2853,8 +3429,8 @@ if (processdata>0){
   monratios3 <- abs(EEGtimecourse[which(includedboth==1),4,2,])/abs(EEGtimecourse[which(includedboth==1),4,3,])
   monratios4 <- abs(EEGtimecourse[which(includedboth==1),3,1,])/abs(EEGtimecourse[which(includedboth==1),3,3,])
   monratios <- (20*log10(monratios1) + 20*log10(monratios2) + 20*log10(monratios3) + 20*log10(monratios4))/4
-  PilotmaskindexH <- colMeans(monratios)
-  PilotmaskindexSEH <- apply(monratios,2,sd)/sqrt(sum(includedboth))
+  PilotmaskindexH <- colMeans(monratios,na.rm=TRUE)
+  PilotmaskindexSEH <- apply(monratios,2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   
   highgroup <- monratios
   
@@ -2862,29 +3438,31 @@ if (processdata>0){
   PilotmaskindexSE5L <- matrix(0,nrow=2,ncol=13000)
   includedboth <- isincluded[2,]*isincluded[3,]*islowAQp
   monratios <- abs(EEGtimecourse[which(includedboth==1),2,2,])/abs(EEGtimecourse[which(includedboth==1),2,3,])
-  Pilotmaskindex5L[1,] <- colMeans(20*log10(monratios))
-  PilotmaskindexSE5L[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+  Pilotmaskindex5L[1,] <- colMeans(20*log10(monratios),na.rm=TRUE)
+  PilotmaskindexSE5L[1,] <- apply(20*log10(monratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   
   Pilotmaskindex5H <- matrix(0,nrow=2,ncol=13000)
   PilotmaskindexSE5H <- matrix(0,nrow=2,ncol=13000)
   includedboth <- isincluded[2,]*isincluded[3,]*ishighAQp
   monratios <- abs(EEGtimecourse[which(includedboth==1),2,2,])/abs(EEGtimecourse[which(includedboth==1),2,3,])
-  Pilotmaskindex5H[1,] <- colMeans(20*log10(monratios))
-  PilotmaskindexSE5H[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+  Pilotmaskindex5H[1,] <- colMeans(20*log10(monratios),na.rm=TRUE)
+  PilotmaskindexSE5H[1,] <- apply(20*log10(monratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   
   Pilotmaskindex7L <- matrix(0,nrow=2,ncol=13000)
   PilotmaskindexSE7L <- matrix(0,nrow=2,ncol=13000)
   includedboth <- isincluded[1,]*isincluded[3,]*islowAQp
   monratios <- abs(EEGtimecourse[which(includedboth==1),1,1,])/abs(EEGtimecourse[which(includedboth==1),1,3,])
-  Pilotmaskindex7L[1,] <- colMeans(20*log10(monratios))
-  PilotmaskindexSE7L[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+  Pilotmaskindex7L[1,] <- colMeans(20*log10(monratios),na.rm=TRUE)
+  PilotmaskindexSE7L[1,] <- apply(20*log10(monratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   
   Pilotmaskindex7H <- matrix(0,nrow=2,ncol=13000)
   PilotmaskindexSE7H <- matrix(0,nrow=2,ncol=13000)
   includedboth <- isincluded[1,]*isincluded[3,]*ishighAQp
   monratios <- abs(EEGtimecourse[which(includedboth==1),1,1,])/abs(EEGtimecourse[which(includedboth==1),1,3,])
-  Pilotmaskindex7H[1,] <- colMeans(20*log10(monratios))
-  PilotmaskindexSE7H[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+  Pilotmaskindex7H[1,] <- colMeans(20*log10(monratios),na.rm=TRUE)
+  PilotmaskindexSE7H[1,] <- apply(20*log10(monratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
+  
+  
   
   if (nbootstraps>0){clustout <- clustercorrect(lowgroup,highgroup,paired=FALSE,nresamples=nbootstraps)}
   
@@ -3011,14 +3589,14 @@ if (processdata>0){
   monratios1 <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),3,])
   monratios2 <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),3,])
   monratios <- (20*log10(monratios1) + 20*log10(monratios2))/2
-  EEGmaskindexL[1,] <- colMeans(monratios)
-  EEGmaskindexSEL[1,] <- apply(monratios,2,sd)/sqrt(sum(includedboth))
+  EEGmaskindexL[1,] <- colMeans(monratios,na.rm=TRUE)
+  EEGmaskindexSEL[1,] <- apply(monratios,2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   includedboth <- isincluded[1,]*isincluded[4,]*islowAQ
   dichratios1 <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),4,])
   dichratios2 <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),4,])
   dichratios <- (20*log10(dichratios1) + 20*log10(dichratios2))/2
-  EEGmaskindexL[2,] <- colMeans(dichratios)
-  EEGmaskindexSEL[2,] <- apply(dichratios,2,sd)/sqrt(sum(includedboth))
+  EEGmaskindexL[2,] <- colMeans(dichratios,na.rm=TRUE)
+  EEGmaskindexSEL[2,] <- apply(dichratios,2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   
   lowgroupM <- monratios
   lowgroupD <- dichratios
@@ -3029,14 +3607,14 @@ if (processdata>0){
   monratios1 <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),3,])
   monratios2 <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),3,])
   monratios <- (20*log10(monratios1) + 20*log10(monratios2))/2
-  EEGmaskindexH[1,] <- colMeans(monratios)
-  EEGmaskindexSEH[1,] <- apply(monratios,2,sd)/sqrt(sum(includedboth))
+  EEGmaskindexH[1,] <- colMeans(monratios,na.rm=TRUE)
+  EEGmaskindexSEH[1,] <- apply(monratios,2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   includedboth <- isincluded[1,]*isincluded[4,]*ishighAQ
   dichratios1 <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),4,])
   dichratios2 <- abs(EEGtimecourse7Hz[which(includedboth==1),2,])/abs(EEGtimecourse7Hz[which(includedboth==1),4,])
   dichratios <- (20*log10(dichratios1) + 20*log10(dichratios2))/2
-  EEGmaskindexH[2,] <- colMeans(dichratios)
-  EEGmaskindexSEH[2,] <- apply(dichratios,2,sd)/sqrt(sum(includedboth))
+  EEGmaskindexH[2,] <- colMeans(dichratios,na.rm=TRUE)
+  EEGmaskindexSEH[2,] <- apply(dichratios,2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   
   highgroupM <- monratios
   highgroupD <- dichratios
@@ -3045,12 +3623,12 @@ if (processdata>0){
   EEGmaskindexSE5L <- matrix(0,nrow=2,ncol=8000)
   includedboth <- isincluded[1,]*isincluded[3,]*islowAQ
   monratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),3,])
-  EEGmaskindex5L[1,] <- colMeans(20*log10(monratios))
-  EEGmaskindexSE5L[1,] <- apply(20*log10(monratios),2,sd)/sqrt(sum(includedboth))
+  EEGmaskindex5L[1,] <- colMeans(20*log10(monratios),na.rm=TRUE)
+  EEGmaskindexSE5L[1,] <- apply(20*log10(monratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   includedboth <- isincluded[1,]*isincluded[4,]*islowAQ
   dichratios <- abs(EEGtimecourse5Hz[which(includedboth==1),1,])/abs(EEGtimecourse5Hz[which(includedboth==1),4,])
-  EEGmaskindex5L[2,] <- colMeans(20*log10(dichratios))
-  EEGmaskindexSE5L[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
+  EEGmaskindex5L[2,] <- colMeans(20*log10(dichratios),na.rm=TRUE)
+  EEGmaskindexSE5L[2,] <- apply(20*log10(dichratios),2,sd,na.rm=TRUE)/sqrt(sum(includedboth))
   
   
   EEGmaskindex5H <- matrix(0,nrow=2,ncol=8000)
@@ -3302,6 +3880,11 @@ if (processdata>0){
   MEGmaskindex7A[2,] <- colMeans(20*log10(dichratios))
   MEGmaskindexSE7A[2,] <- apply(20*log10(dichratios),2,sd)/sqrt(sum(includedboth))
   
+  CgroupM[which(is.na(CgroupM))] <- 0
+  AgroupM[which(is.na(AgroupM))] <- 0
+  CgroupD[which(is.na(CgroupD))] <- 0
+  AgroupD[which(is.na(AgroupD))] <- 0
+  
       if (nbootstraps>0){
       clustoutM <- clustercorrect(CgroupM,AgroupM,paired=FALSE,nresamples=nbootstraps)
       clustoutD <- clustercorrect(CgroupD,AgroupD,paired=FALSE,nresamples=nbootstraps)    
@@ -3328,6 +3911,11 @@ if (processdata>0){
     
     lines(c(-1,7),c(0,0),lty=2)
     
+    MEGmaskindexC[which(is.na(MEGmaskindexC))] <- 0
+    MEGmaskindexA[which(is.na(MEGmaskindexA))] <- 0
+    MEGmaskindexSEC[which(is.na(MEGmaskindexSEC))] <- 0
+    MEGmaskindexSEA[which(is.na(MEGmaskindexSEA))] <- 0
+    
     if (plotsmoothed==0){
       polygon(times[c(1:8008,8008:1)],c(MEGmaskindexC[masktype,]+MEGmaskindexSEC[masktype,],MEGmaskindexC[masktype,8008:1]-MEGmaskindexSEC[masktype,8008:1]),col=colpal[4],border=NA)
       polygon(times[c(1:8008,8008:1)],c(MEGmaskindexA[masktype,]+MEGmaskindexSEA[masktype,],MEGmaskindexA[masktype,8008:1]-MEGmaskindexSEA[masktype,8008:1]),col=colpal[5],border=NA)
@@ -3337,6 +3925,7 @@ if (processdata>0){
     }
     
     if (plotsmoothed==1){
+      
       U <- smooth.spline(times,MEGmaskindexC[masktype,]+MEGmaskindexSEC[masktype,],df=20)
       L <- smooth.spline(times,MEGmaskindexC[masktype,]-MEGmaskindexSEC[masktype,],df=20)
       U$y[which(U$y<(-3))] <- -3
@@ -3440,7 +4029,9 @@ if (processdata>0){
       if (sum(col2rgb(e9@paths[n]$path@rgb))<765){e9@paths[n]$path@rgb <- addalpha(e9@paths[n]$path@rgb,alpha=0.2)}}}
   
   
-  pdf('Figures/AQfigure.pdf', bg="transparent", height = 10, width = 12)
+if (fixedphase==0){pdf('Figures/AQfigure.pdf', bg="transparent", height = 10, width = 12)}
+if (fixedphase==1){pdf('Figures/AQfigureFP.pdf', bg="transparent", height = 10, width = 12)}
+  
   par(mar=c(0.1,0.1,0.1,0.1))
   plot(x=NULL,y=NULL,axes=FALSE, ann=FALSE, xlim=c(0,1), ylim=c(0,1))
   
@@ -3493,11 +4084,11 @@ For decades, neural suppression in early visual cortex has been thought to be fi
 
 # Introduction
 
-Suppressive interactions between neurons are ubiquitous in the nervous system, with normalization considered a canonical neuronal computation [@Carandini2011]. Yet for decades the strength of suppression was treated as fixed, due to the observation that adapting to one stimulus does not decrease its suppressive potency [@Foley1997; @Freeman2002]. This orthodoxy has been challenged by a series of innovative studies showing that normalization can be 'reweighted' by recent history [@Westrick2016; @Aschner2018; @Yiltiz2020]. When pairs of stimuli are repeatedly presented together, their neural representations come to suppress each other more strongly. Far from being fixed, normalization is therefore a dynamic process that is continuously updated by the sensory environment. Our objectives were to measure the timecourse of these changes non-invasively in the human brain, compare them across distinct suppressive pathways, and determine whether they differ as a function of autistic traits.
+Suppressive interactions between neurons are ubiquitous in the nervous system, with normalization considered a canonical neuronal computation [@Carandini2011]. One consequence of normalization is that neurons tuned to different stimulus features modulate each others' firing, usually via a process of divisive suppression [@Heeger1992]. For decades the strength of suppression was treated as fixed, due to the observation that adapting to one stimulus does not decrease its suppressive potency [@Foley1997; @Freeman2002]. This orthodoxy has been challenged by a series of innovative studies proposing that normalization can be 'reweighted' by recent history [@Westrick2016; @Aschner2018; @Yiltiz2020]. When pairs of stimuli are repeatedly presented together, their neural representations appear to suppress each other more strongly. Far from being fixed, normalization may therefore be a dynamic process that is continuously updated by the sensory environment. Our objectives were to measure the timecourse of changes in suppression non-invasively in the human brain, compare them across distinct anatomical pathways, and determine whether they differ as a function of autistic traits.
 
 Plastic changes within the visual system occur over multiple timescales [see @Webster2015 for a recent review]. Cortical forms of adaptation to cues such as stimulus contrast [@Blakemore1969], orientation [@Gibson1937] and motion [@Mather2008] can be observed within a few seconds, but also build up over durations on the order of minutes [@Greenlee1991]. Other types of adaptation have been identified where changes occur over longer time periods, such as several hours [@Kwon2009] or days [@Haak2014]. Previous normalization reweighting studies involved adapting sequences of around 40 -- 60s [@Aschner2018; @Yiltiz2020], but in principle reweighting might occur faster than this, consistent with other types of contrast adaptation.
 
-Multiple suppressive pathways have been identified in the visual system, including between stimuli differing in orientation [@Heeger1992; @Foley1994], eye-of-origin [@Legge1979; @Sengpiel1994] and spatial position [@Petrov2005; @Cannon1991]. At present there is evidence of normalization reweighting between stimuli with orthogonal orientations [@Aschner2018], and adjacent spatial positions [@Yiltiz2020]. We anticipated that interocular suppression should also be subject to reweighting, but that there might be differences in the dynamics across suppressive pathways [e.g. @Meese2009; @Sengpiel2005; @Li2005]. Comparing monocular and dichoptic suppression permits any contribution of early pre-cortical factors to be isolated. This is because interocular suppression impacts in primary visual cortex, and bypasses any retinal and subcortical stages of processing that contribute to monocular suppression [@Li2005].
+Multiple suppressive pathways have been identified in the visual system, including between stimuli differing in orientation [@Heeger1992; @Foley1994], eye-of-origin [@Legge1979; @Sengpiel1994; @Dougherty2019] and spatial position [@Petrov2005; @Cannon1991]. At present there is evidence of normalization reweighting between stimuli with orthogonal orientations [@Aschner2018], and adjacent spatial positions [@Yiltiz2020]. We anticipated that interocular suppression should also be subject to reweighting, but that there might be differences in the dynamics across suppressive pathways [e.g. @Meese2009; @Sengpiel2005; @Li2005]. Comparing monocular and dichoptic suppression permits any contribution of early pre-cortical factors to be isolated. This is because interocular suppression is generally thought to impact in primary visual cortex [though see @Dougherty2019], and bypasses any retinal and subcortical stages of processing that contribute to monocular suppression [@Li2005].
 
 Atypical sensory experience, including hypersensitivity to loud sounds, bright lights and strong odours or flavours, is widely reported by individuals on the autism spectrum [@MacLennan2022; @Simmons2009], but the causal mechanisms remain unclear. Fundamental measures of sensitivity including visual acuity [@Tavassoli2011], contrast sensitivity [@Koh2010], and audiometric performance [@Rosenhall1999] are not consistently different from neurotypical controls. Theoretical accounts of sensory differences in autism have proposed that the balance of inhibition and excitation may be disrupted [@Rubenstein2003; @Rosenberg2015], yet the evidence is currently inconclusive [e.g. @Schallmo2020; @VandeCruys2018; @Sandhu2020]. Our recent work identified an autism-related difference using steady-state EEG [@Vilidaite2018], in which nonlinear (second harmonic) responses were weaker, implicating atypical suppression in autism.
 
@@ -3525,7 +4116,9 @@ In Experiment 1, target stimuli flickering at 7Hz were presented at a range of c
 
 The procedure for Experiment 2 was very similar, except that participants also wore stereo shutter glasses during the experiment. There were four conditions: (i) monocular presentation of a 5Hz stimulus of 48% contrast, (ii) monocular presentation of a 7Hz stimulus of 48% contrast, (iii) monocular presentation of both stimuli superimposed at right angles, and (iv) dichoptic presentation of both stimuli at right angles (i.e. one stimulus to the left eye, one to the right eye). Eye of presentation was pseudo-randomised to ensure equal numbers of left-eye and right-eye presentations. The trial duration was 6 seconds, with a 3 second inter-trial interval. Participants completed 3 blocks, each lasting around 10 minutes, resulting in a total of 48 repetitions of each condition. Experiment 3 was identical, except that the projector screen was viewed from a distance of 85cm.
 
-EEG data from Experiments 1 and 2 were first imported into Matlab using components of the EEGlab toolbox [@Delorme2004], and converted into a compressed ASCII format. Primary data analysis was then conducted using a bespoke _R_ script. In brief, we epoched each trial and extracted the average timecourse across four occipital electrodes (\emph{Oz}, \emph{POz}, \emph{O1} and \emph{O2}), and then calculated the Fourier transform of this average waveform. We excluded trials for which the Mahalanobis distance of the complex Fourier components exceeded 3 [for details see @Baker2021]. This resulted in `r round(Pilotpercentexcluded,digits=2)`% of trials being excluded for Experiment 1, and `r round(EEGpercentexcluded,digits=2)`% of trials for Experiment 2. Next we averaged the waveforms across all remaining trials, and calculated the Fourier transform in a 1-second sliding window to generate timecourses for each participant. We divided the timecourse for the target-only condition by the timecourse for the target + mask condition to produce a suppression ratio. These were then converted to logarithmic (dB) units for averaging, calculation of standard errors, and statistical comparisons. For display purposes we smoothed the timecourses using a cubic spline function, however all statistical comparisons used the unsmoothed data.
+EEG data from Experiments 1 and 2 were first imported into Matlab using components of the EEGlab toolbox [@Delorme2004], and converted into a compressed ASCII format. Primary data analysis was then conducted using a bespoke _R_ script. In brief, we epoched each trial and extracted the average timecourse across four occipital electrodes (\emph{Oz}, \emph{POz}, \emph{O1} and \emph{O2}), and then calculated the Fourier transform of this average waveform. We excluded trials for which the Mahalanobis distance of the complex Fourier components exceeded 3 [for details see @Baker2021]. This resulted in `r round(Pilotpercentexcluded,digits=2)`% of trials being excluded for Experiment 1, and `r round(EEGpercentexcluded,digits=2)`% of trials for Experiment 2. Next we averaged the waveforms across all remaining trials, and calculated the Fourier transform in a 1-second sliding window to generate timecourses for each participant. We divided the timecourse for the target-only condition by the timecourse for the target + mask condition to produce a suppression ratio. These were then converted to logarithmic (dB) units for averaging, calculation of standard errors, and statistical comparisons. For display purposes we smoothed the timecourses using a cubic spline function, however all statistical comparisons used the unsmoothed data. 
+
+Following the suggestion of a reviewer, we conducted an alternative fixed-phase analysis, where the signal in each 1 second epoch was multiplied by a sine wave of appropriate frequency and phase instead of taking the Fourier transform. The results were similar to our main analysis, and can be viewed in the Figures subdirectory of the project code repository ([https://github.com/bakerdh/normreweight/tree/main/Figures files with the suffix 'FP'](https://github.com/bakerdh/normreweight/tree/main/Figures)). We also conducted simulations (also available in the code repository) to confirm that our analysis methods were not distorting the estimates of the suppression timecourse. In brief, although the 1 second sliding time window does blur the signals in time, these effects are largely negated by calculating the suppression ratio because the blur cancels out across the numerator and denominator. Overall these simulations give us confidence in the accuracy of our estimates of suppression dynamics.
 
 For Experiment 3, we performed source localisation using a linearly constrained minimum variance (LCMV) beamformer algorithm, implemented in Brainstorm [@Tadel2011]. Structural MRI scans were processed using Freesurfer [@Dale1999] to generate a 3D mesh of the head and brain, and we calculated source weights for each block with reference to a 5-minute empty room recording, usually recorded on the day of the experiment. The matrix of source weights for each block was used in a custom Matlab script to extract signals from V1, identified using the probabilistic maps of @Wang2015. These signals were then imported into R for the main analysis, which was consistent with the EEG analysis described above. The outlier rejection procedure excluded `r round(MEGpercentexcluded,digits=2)`% of trials for Experiment 3.
 
@@ -3537,57 +4130,69 @@ Following a preliminary analysis of the data from Experiment 1, we preregistered
 
 # Results
 
-We began by reanalysing data from a steady-state visually evoked potential (SSVEP) experiment reported by @Vilidaite2018. Participants viewed arrays of flickering gratings of varying contrasts. In some conditions a single grating orientation was present flickering at 7Hz, whereas in other conditions a high contrast 'mask' was added at right angles to the target gratings, and flickering at 5Hz. The left panel of Figure \@ref(fig:Pilotdata)a shows contrast response functions with and without the mask - the presence of the mask reduces the 7Hz response to the target (blue squares are below the black circles; significant main effect of mask contrast, F(1,99) = `r round(maskinganova1$ANOVA$F[2],digits=2)`, \emph{p} < 0.001). Similarly, the right panel of Figure \@ref(fig:Pilotdata)a shows that the 5Hz response to the mask was itself suppressed by the presence of high contrast targets (main effect of target contrast on the mask response, F(`r round(maskinganova2$ANOVA$DFn*gg,digits=2)`,`r round(maskinganova2$ANOVA$DFd*gg,digits=2)`) = `r round(maskinganova2$ANOVA$F,digits=2)`, \emph{p} < 0.001; note that the data from the masking conditions were not reported by @Vilidaite2018). At both frequencies, responses were localised to the occipital pole (see insets).
+We began by reanalysing data from a steady-state visually evoked potential (SSVEP) experiment reported by @Vilidaite2018. Participants viewed arrays of flickering gratings of varying contrasts. In some conditions a single grating orientation was present flickering at 7Hz (the target), whereas in other conditions a high contrast 'mask' was added at right angles to the target gratings, and flickering at 5Hz. The left panel of Figure \@ref(fig:Pilotdata)a shows contrast response functions with and without the mask - the presence of the mask reduces the 7Hz response to the target (blue squares are below the black circles; significant main effect of mask contrast, F(1,99) = `r round(maskinganova1$ANOVA$F[2],digits=2)`, \emph{p} < 0.001). Similarly, the right panel of Figure \@ref(fig:Pilotdata)a shows that the 5Hz response to the mask was itself suppressed by the presence of high contrast targets (main effect of target contrast on the mask response, F(`r round(maskinganova2$ANOVA$DFn*gg,digits=2)`,`r round(maskinganova2$ANOVA$DFd*gg,digits=2)`) = `r round(maskinganova2$ANOVA$F,digits=2)`, \emph{p} < 0.001; note that the data from the masking conditions were not reported by @Vilidaite2018). At both frequencies, responses were localised to the occipital pole (see insets).
 
-```{r Pilotdata, fig.cap="Summary of pilot analysis of data from Vilidiate et al. (2018). Panel (a) shows contrast response functions at the target frequency (7Hz, left) and the mask frequency (5Hz, right). Insets show the distribution of activity across the scalp, with points marking the electrodes over which signals were averaged (Oz, POz, O1 and O2). Panel (b) shows Fourier spectra for the single component stimuli and their combination (plaid). Note the strong second harmonic components at 14Hz and 10Hz. Panel (c) shows timecourses of frequency-locked responses to a single stimulus (black) and the plaid stimulus (blue), compared to baseline (grey). Panel (d) shows the timecourse of suppression at each frequency (7Hz, 5Hz, 14Hz, 10Hz) and their average (black curve). Points around y = 1.8 indicate a significantly increasing ratio. Error bars in panel (a) and shaded regions in panels (c,d) indicate ±1SE across N=100 participants, and grey rectangles indicate the timing of stimulus presentation. The larger symbols in panel (a) indicate the conditions used for subsequent analyses.", fig.align="center", echo=FALSE}
+```{r Pilotdata, out.width="40%", fig.cap="Summary of pilot analysis of data from Vilidiate et al. (2018). Panel (a) shows contrast response functions at the target frequency (7Hz, left) and the mask frequency (5Hz, right). Insets show the distribution of activity across the scalp, with points marking the electrodes over which signals were averaged (Oz, POz, O1 and O2). Panel (b) shows Fourier spectra for the single component stimuli and their combination (plaid). Note the strong second harmonic components at 14Hz and 10Hz. Panel (c) shows timecourses of frequency-locked responses to a single stimulus (black) and the plaid stimulus (blue), compared to a baseline condition (grey) where no stimulus was shown at the target frequency. Panel (d) shows the timecourse of suppression at each frequency (7Hz, 5Hz, 14Hz, 10Hz) and their average (black curve). Points around y = 1.8 indicate a significantly increasing ratio (for the time window centred at each point). Error bars in panel (a) and shaded regions in panels (c,d) indicate ±1SE across N=100 participants, and grey rectangles indicate the timing of stimulus presentation. The larger symbols in panel (a) indicate the conditions used for subsequent analyses.", fig.align="center", echo=FALSE}
 
-knitr::include_graphics('Figures/VilidaiteData.pdf')
+if (fixedphase==0){knitr::include_graphics('Figures/VilidaiteData.pdf')}
+if (fixedphase==1){knitr::include_graphics('Figures/VilidaiteDataFP.pdf')}
 
 ```
 
-We then performed a timecourse analysis, in which we analysed each 11-second trial using a sliding 1-second time window. The top panel of Figure \@ref(fig:Pilotdata)c shows the response at the target frequency (7Hz) to a single stimulus of 32% contrast (black), and the response at 7Hz when the 32% contrast mask is added (blue). For comparison, a baseline timecourse is also shown (grey), which was the response at 7Hz when a 5Hz stimulus was shown (therefore controlling for attention, blinking etc.). Analogous responses are shown at three other frequencies - the mask frequency (5Hz), and the second harmonics of both target and mask frequencies (14Hz, 10Hz), at which strong responses were also found (see spectra in Figure \@ref(fig:Pilotdata)b). The reduction in signal strength when the mask component is added illustrates the masking effect. 
+We then performed a timecourse analysis, in which we analysed each 11-second trial using a sliding 1-second time window. The top panel of Figure \@ref(fig:Pilotdata)c shows the response at the target frequency (7Hz) to a single stimulus of 32% contrast (black), and the response at 7Hz when the 32% contrast mask is added (blue). For comparison, a baseline timecourse is also shown (grey), which was the target response at 7Hz when a 5Hz mask stimulus was shown (therefore controlling for attention, blinking etc.). Analogous responses are shown at three other frequencies - the mask frequency (5Hz), and the second harmonics of both target and mask frequencies (14Hz, 10Hz), at which strong responses were also found (see spectra in Figure \@ref(fig:Pilotdata)b). The reduction in signal strength when a second component is added at a different orientation and frequency illustrates the masking effect. Surprisingly there was sometimes substantial activity before and after the stimulus was presented, as is especially clear in the baseline condition shown by the grey curves in Figure \@ref(fig:Pilotdata)c. We think the most likely explanation for this is broadband noise from participant movement during the breaks between trials. Since it is approximately equal across conditions it appears to cancel out in the suppression ratios (Figure \@ref(fig:Pilotdata)d).
 
-Taking the ratio of the two timecourses to calculate a masking index reveals that at 7Hz masking increases steeply during the first two seconds of stimulus presentation, and then plateaus for several seconds (blue trace in Figure \@ref(fig:Pilotdata)d). A similar pattern is observed at 5Hz (red trace in Figure \@ref(fig:Pilotdata)d), as well as at the second harmonics, with some variability in the timecourse across frequencies; for example, at 5Hz suppression peaks at around 4 seconds. The black trace shows the average masking ratio across all four frequencies, which rises steeply for just over two seconds and then stays approximately constant until stimulus offset. We conducted cluster-corrected t-tests between ratios separated by `r timeoffset`ms, testing for an increase in suppression ratio across time (i.e. a one-sided test). Points at y = 1.8 in Figure \@ref(fig:Pilotdata)d indicate time points where the ratio is significantly increasing, and occur mostly during the first 2 seconds of stimulus presentation.
+Taking the ratio of the two timecourses (the target only timecourse and the target timecourse when a mask was present) to calculate a masking index reveals that for 7Hz targets masking increases steeply during the first two seconds of stimulus presentation, and then plateaus for several seconds (blue trace in Figure \@ref(fig:Pilotdata)d). A similar pattern is observed for the 5Hz mask (red trace in Figure \@ref(fig:Pilotdata)d), as well as at the second harmonics, with some variability in the timecourse across frequencies; for example, at 5Hz suppression peaks at around 4 seconds. The black trace shows the average masking ratio across all four frequencies, which rises steeply for just over two seconds and then stays approximately constant until stimulus offset. We conducted cluster-corrected t-tests between ratios separated by `r timeoffset`ms, testing for an increase in suppression ratio across time (i.e. a one-sided test). Points at y = 1.8 in Figure \@ref(fig:Pilotdata)d indicate time points where the ratio is significantly increasing (i.e. there is significantly more suppression 500ms after the time point than there was 500ms before it), and occur up until 2.27 seconds after stimulus presentation. We also calculated an overall effect size by comparing the amount of suppression during the first 1000ms following stimulus onset with that between 2000 and 3000ms, averaged across all temporal frequencies. This effect size (Cohen's *d* = `r round(piloteffectsize,digits=2)`) indicated a medium-sized effect.
 
 Our initial reanalysis was promising, however the data were noisy despite the large sample size (of N=100), because each participant contributed only 8 trials (88 seconds) to each condition. We therefore preregistered two new experiments (see https://osf.io/4qudc) to investigate these effects in greater detail. These had a similar overall design to the @Vilidaite2018 study, with some small changes intended to optimise the study (see Methods). The key differences were that we used shorter trials (because there were few changes in the latter part of the trials shown in Figure \@ref(fig:Pilotdata)d), and also focussed all trials into a smaller number of conditions, such that each participant contributed 48 repetitions (288 seconds of data) to each of 4 conditions.
 
-Figure \@ref(fig:EEGdata) summarises the results of our EEG experiment testing a further 100 adult participants. Averaged EEG waveforms showed a strong oscillatory component at each of the two stimulus flicker frequencies (Figure \@ref(fig:EEGdata)a), which slightly lagged the driving signal. Signals were well-isolated in the Fourier domain (Figure \@ref(fig:EEGdata)b), and localised to occipital electrodes. Responses at 7Hz were weaker in the two masking conditions, showing significant changes in response amplitude for both the monocular (\emph{t} = `r round(t7a$statistic,digits=2)`, \emph{df} = `r t7a$parameter`, \emph{p} < 0.001) and dichoptic (\emph{t} = `r round(t7b$statistic,digits=2)`, \emph{df} = `r t7b$parameter`, \emph{p} < 0.001) masks. Dichoptic masking was significantly stronger than monocular masking (\emph{t} = `r round(t7c$statistic,digits=2)`, \emph{df} = `r t7c$parameter`, \emph{p} < 0.001), and a similar pattern was evident at 5Hz.
+Figure \@ref(fig:EEGdata) summarises the results of our EEG experiment testing a further 100 adult participants. Averaged EEG waveforms showed a strong oscillatory component at each of the two stimulus flicker frequencies (Figure \@ref(fig:EEGdata)a), which slightly lagged the driving signal. Signals were well-isolated in the Fourier domain (Figure \@ref(fig:EEGdata)b), and localised to occipital electrodes. Responses at 7Hz were weaker in the two masking conditions, showing significant changes in response amplitude for both the monocular (\emph{t} = `r round(t7a$statistic,digits=2)`, \emph{df} = `r t7a$parameter`, \emph{p} < 0.001) and dichoptic (\emph{t} = `r round(t7b$statistic,digits=2)`, \emph{df} = `r t7b$parameter`, \emph{p} < 0.001) masks. Dichoptic masking was significantly stronger than monocular masking (\emph{t} = `r round(t7c$statistic,digits=2)`, \emph{df} = `r t7c$parameter`, \emph{p} < 0.001), and a similar pattern was evident at 5Hz (note that for this experiment, the terms 'target' and 'mask' are arbitrary, as each component was presented at a single contrast).
 
-```{r EEGdata, fig.cap="Summary of EEG results for N=100 adult participants. Panel (a) shows scalp topographies and averaged waveforms for 5Hz (top) and 7Hz (bottom) stimuli. The black sine wave trace in each panel illustrates the driving contrast modulation, and black points on the scalp topographies indicate electrodes Oz, O1, O2 and POz. Panel (b) shows the Fourier amplitude spectrum for each condition, with clear peaks at 5Hz and 7Hz. Panels (c,d) show timecourses at each frequency for the baseline condition (black), and the monocular (blue) and dichoptic (red) masking conditions. Panels (e,f) show suppression ratios as a function of time for each mask type, with points around y = 0.8 indicating a significantly increasing ratio. Shaded regions in panels (c-f) span ±1SE across participants, and light grey rectangles indicate the period of stimulus presentation.", fig.align="center", echo=FALSE}
+```{r EEGdata, fig.cap="Summary of EEG results for N=100 adult participants. Panel (a) shows scalp topographies and averaged waveforms for 5Hz (top) and 7Hz (bottom) stimuli. The black sine wave trace in each panel illustrates the driving contrast modulation, and black points on the scalp topographies indicate electrodes Oz, O1, O2 and POz. Panel (b) shows the Fourier amplitude spectrum for each condition, with clear peaks at 5Hz and 7Hz. Panels (c,d) show timecourses at each frequency for the target-only condition (black), and the monocular (blue) and dichoptic (red) masking conditions. Panels (e,f) show suppression ratios as a function of time for each mask type, with points around y = 0.8 indicating a significantly increasing ratio. Shaded regions in panels (c-f) span ±1SE across participants, and light grey rectangles indicate the period of stimulus presentation.", fig.align="center", echo=FALSE}
 
-knitr::include_graphics('Figures/EEGdata.pdf')
+if (fixedphase==0){knitr::include_graphics('Figures/EEGdata.pdf')}
+if (fixedphase==1){knitr::include_graphics('Figures/EEGdataFP.pdf')}
 
 ```
 
-The timecourse at both flicker frequencies showed an initial onset transient, and was then relatively stable for the 6 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)c,d). The ratio of target only to target + mask conditions increased over time (Figure \@ref(fig:EEGdata)e,f) for both mask types. At 5Hz the increase in masking continued over the first 5 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)e; points at y = 0.8 indicate significantly increasing suppression), whereas at 7Hz the increase occurred primarily during the first second after onset (Figure \@ref(fig:EEGdata)f). These differences across frequency are consistent with the pilot data (see Figure \@ref(fig:Pilotdata)d). Both monocular and dichoptic masks produced similar timecourses of suppression. Overall, this second study confirmed that normalization increases during the first few seconds of a steady-state trial, and extends this finding to dichoptic mask arrangements.
+The timecourse at both flicker frequencies showed an initial onset transient, and was then relatively stable for the 6 seconds of stimulus presentation (Figure \@ref(fig:EEGdata)c,d). The ratio of target only to target + mask conditions increased over time (Figure \@ref(fig:EEGdata)e,f) for both mask types. At 5Hz the increase in masking continued for as long as 5 seconds of stimulus presentation in the monocular condition (Figure \@ref(fig:EEGdata)e; points at y = 0.8 indicate significantly increasing suppression, which continue until 5.1s (mon) or 4.2s (dich)), whereas at 7Hz the increase occurred primarily during the first 1.5 seconds after onset (Figure \@ref(fig:EEGdata)f; substantial clusters up to 1.5s (mon) and 1.7s (dich)). These differences across frequency are consistent with the pilot data (see Figure \@ref(fig:Pilotdata)d). Both monocular and dichoptic masks produced similar timecourses of suppression. We calculated an overall effect size comparing suppression in the first 1000ms after stimulus onset to the time window from 3000-4000ms, pooling over frequency and mask type. This had a value of *d* = `r round(EEGeffectsize,digits=2)`. Overall, this second study confirmed that normalization increases during the first few seconds of a steady-state trial, and extends this finding to dichoptic mask arrangements.
 
 ```{r MEGdata, fig.cap="Summary of MEG results for N=20 adults. Panel (a) shows average SSVEP response in source space, thresholded at SNR=2 (blue, left), and locations of the V1 ROI on the medial surface of both hemispheres (right, red). Panel (b) shows the Fourier spectra for the four experimental conditions, from the most responsive vertex in V1. Panels (c,d) show timecourses at 5Hz and 7Hz, and panels (e,f) show suppression ratios for the monocular and dichoptic conditions at each frequency, with points around y = 0.8 indicating a significantly increasing ratio. Shaded regions in panels (c-f) indicate ±1SE across participants, and light grey rectangles indicate the period of stimulus presentation.", fig.align="center", echo=FALSE}
 
-knitr::include_graphics('Figures/MEGdata.pdf')
+if (fixedphase==0){knitr::include_graphics('Figures/MEGdata.pdf')}
+if (fixedphase==1){knitr::include_graphics('Figures/MEGdataFP.pdf')}
 
 ```
 
-Next we repeated the experiment on 20 participants using a 248-channel whole-head cryogenic MEG system. Half of the participants had a diagnosis of autism, and the remainder were age- and gender-matched controls. Source localisation using a linearly constrained minimum variance (LCMV) beamformer algorithm [@VanVeen1997] showed strong localisation of steady-state signals at the occipital pole (see Figure \@ref(fig:MEGdata)a), and in the Fourier domain (Figure \@ref(fig:MEGdata)b). Responses from the most responsive V1 vertex showed a similar timecourse to those of the EEG experiments at both frequencies (Figure \@ref(fig:MEGdata)c,d), and showed increasing suppression during the first few seconds of stimulus presentation (Figure \@ref(fig:MEGdata)e,f). The normalization reweighting effect was again clearest at 5Hz, especially for the dichoptic condition (red curve in Figure \@ref(fig:MEGdata)e). This confirms that the reweighting effects can occur as early as primary visual cortex, consistent with findings from neurophysiology [@Aschner2018]. However the data are more variable than for our EEG experiments, and had fewer significant clusters, owing to the smaller sample size for this dataset.
+Next we repeated the experiment on 20 participants using a 248-channel whole-head cryogenic MEG system. Half of the participants had a diagnosis of autism, and the remainder were age- and gender-matched controls. Source localisation using a linearly constrained minimum variance (LCMV) beamformer algorithm [@VanVeen1997] showed strong localisation of steady-state signals at the occipital pole (see Figure \@ref(fig:MEGdata)a), and in the Fourier domain (Figure \@ref(fig:MEGdata)b). Responses from the most responsive V1 vertex showed a similar timecourse to those of the EEG experiments at both frequencies (Figure \@ref(fig:MEGdata)c,d), and showed increasing suppression during the first few seconds of stimulus presentation (Figure \@ref(fig:MEGdata)e,f). The normalization reweighting effect was again clearest at 5Hz, especially for the dichoptic condition (red curve in Figure \@ref(fig:MEGdata)e), which increased until 2.5s. This confirms that the reweighting effects can occur as early as primary visual cortex, consistent with findings from neurophysiology [@Aschner2018]. However the data are more variable than for our EEG experiments, and had fewer significant clusters, perhaps owing to a power reduction caused by the smaller sample size for this dataset and greater heterogeneity across frequency. When pooling effects over frequency and condition, the overall effect size (*d* = `r round(MEGeffectsize,digits=2)`) was near zero.
 
-```{r AQanalysis, fig.cap="Analysis of the effect of autistic traits on normalization reweighting. Panels (a-c) show distributions of AQ scores across the three data sets. Panels (d-h) show timecourses of suppression averaged across stimulation frequency, and split by AQ score (d-f) or autism status (g, h). Panels (d,e,g) are for binocular or monocular presentation, and panels (f,h) are for dichoptic presentation. Shaded regions in panels (d-h) indicate ±1SE across participants, and black points at y = 0.8 indicate significant differences between groups.", fig.align="center", fig.width=0.5, echo=FALSE}
+Intermodulation responses, at sums and differences of different stimulation frequencies, are another marker of nonlinear interaction [@Regan1988; @Tsai2012; @Cunningham2017]. We also calculated the timecourse of the sum intermodulation terms (at 12Hz) in our data sets (the difference terms at 2Hz were negligible). Figure \@ref(fig:IMplot) shows that for both EEG experiments, the intermodulation term increases during the first 1 second of stimulus presentation and then remains approximately constant. The intermodulation response in the MEG data was less clear, consistent with the spectra shown in Figure \@ref(fig:MEGdata)b. It seems unlikely that intermodulation terms are useful for monitoring the timecourse of normalization reweighting, and indeed they may derive from a nonlinear process other than suppression, such as exponentiation and signal combination [@Regan1988]. Previous work has identified situations in which suppression is constant, but the intermodulation term changes substantially between conditions depending on the extent of signal pooling [@Cunningham2017].
 
-knitr::include_graphics('Figures/AQfigure.pdf')
+```{r IMplot, fig.cap="Timecourse of the sum intermodulation term at 12Hz across three experiments. In both EEG experiments, the intermodulation response increases during the first 1 second of stimulus presentation. Responses are calculated as a proportional increase relative to the target-only conditions (where the intermodulation response is absent), for direct comparison with the suppression ratios in Figures 1-3. Shaded regions indicate ±1SE.", fig.align="center", echo=FALSE}
+
+knitr::include_graphics('Figures/IMfigure.pdf')
 
 ```
 
 To investigate whether normalization reweighting effects differ with respect to autistic traits, we then split each dataset (averaged across temporal frequency) using median AQ score (for the EEG experiments) or according to diagnostic group (autism vs controls) for the MEG data. Figure \@ref(fig:AQanalysis)a-c shows distributions of AQ scores for each experiment, and indicates for the pilot and EEG data which participants were in the high (purple) and low (green) AQ groups. The median AQ scores were `r round(median(pilotAQ),digits=0)` for the pilot data, and `r median(allAQ)` for the EEG data. In the MEG experiment, AQ scores for the autism group (mean `r round(mean(MEG_A),digits=1)`) and the control group (mean `r round(mean(MEG_C),digits=1)`) were significantly different (*t* = `r format(round(t$statistic,digits=2),nsmall=2)`, *df* = `r round(t$parameter,digits=1)`, *p* < 0.001), with minimal overlap (one participant with an autism diagnosis had an AQ score marginally lower than the highest AQ scores from the control group). These distributions are consistent with previous results for AQ [@Baron-Cohen2001].
 
+```{r AQanalysis, fig.cap="Analysis of the effect of autistic traits on normalization reweighting. Panels (a-c) show distributions of AQ scores across the three data sets. Panels (d-h) show timecourses of suppression averaged across stimulation frequency, and split by AQ score (d-f) or autism status (g, h). Panels (d,e,g) are for binocular or monocular presentation, and panels (f,h) are for dichoptic presentation. Shaded regions in panels (d-h) indicate ±1SE across participants, and black points at y = 0.8 indicate significant differences between groups.", fig.align="center", fig.width=0.5, echo=FALSE}
+
+if (fixedphase==0){knitr::include_graphics('Figures/AQfigure.pdf')}
+if (fixedphase==1){knitr::include_graphics('Figures/AQfigureFP.pdf')}
+
+```
+
 We compared the timecourse of suppression between groups using a nonparametric cluster correction approach [@Maris2007] to control the type I error rate. Significant clusters are indicated at y = 0.8 in panels d-h of Figure \@ref(fig:AQanalysis). Despite some occasionally significant clusters, there is no clear or consistent difference between groups across our three data sets. In particular, none of the significant clusters occur during the first few seconds of stimulus onset, when reweighting takes place. We also compared suppression ratios calculated on Fourier components for the full trial, and found no significant effects of autism on suppression strength. For Experiment 1 we assessed the first and second harmonics separately, but also found no AQ-related differences. We therefore conclude that autism/AQ score is not associated with normalization reweighting, or the strength of suppression more generally.
 
 # Discussion
 
-We found evidence of dynamic normalization reweighting across three separate datasets. Suppression increased significantly during the first 2-5 seconds of stimulus presentation, though with some variation across temporal frequency. Reweighting had a similar timecourse for monocular and dichoptic stimulus presentation, and was apparent as early as V1. We did not find compelling differences associated with autism, or high vs low autistic traits. In the remainder of this section we will discuss possible explanations for temporal frequency differences, evidence for inhibitory differences in autism, and more general implications of dynamic normalization reweighting.
+We found evidence of dynamic normalization reweighting across three separate datasets. Suppression increased significantly during the first 2-5 seconds of stimulus presentation, though with some variation across temporal frequency. Relative to the first 1 second of stimulus presentation, the increase in suppression after 3 seconds constituted an effect size of *d* = `r round(piloteffectsize,digits=2)` for the pilot data, *d* = `r round(EEGeffectsize,digits=2)` for our new EEG experiment, and *d* = `r round(MEGeffectsize,digits=2)` for our MEG experiment (pooled across temporal frequency and monocular and dichoptic conditions). Reweighting had a similar timecourse for monocular and dichoptic stimulus presentation, and was apparent as early as V1. We did not find compelling differences associated with autism, or high vs low autistic traits. In the remainder of this section we will discuss possible explanations for temporal frequency differences, evidence for inhibitory differences in autism, and more general implications of dynamic normalization reweighting.
 
 One important question is whether the dynamic increase in suppression can be explained by the stimulus onset transient. This is a possibility that cannot be ruled out for some of our data. For example, the steep increase in suppression in Figure \@ref(fig:EEGdata)f has a similar timecourse to the onset transient in Figure \@ref(fig:EEGdata)d. However, there are also counterexamples where suppression continues to increase well beyond the first 1 second of stimulus presentation (e.g. Figure \@ref(fig:EEGdata)e). It is currently unclear why there appear to be such substantial differences between temporal frequency conditions, especially with such similar frequencies (5 and 7Hz). However the differences are relatively consistent across experiments. For example, 5Hz flicker produces a more gradual increase in suppression across all three data sets, compared with 7Hz flicker. These differences may be a consequence of visual channels with different temporal tuning interacting with the stimulation frequency, as well as any nonlinearities that govern suppression. Or there could be an asymmetry, whereby the relative temporal frequency between the two stimulus components affects the character of suppression [@Liza2022]. We hope to be able to model these effects in the future, for example by using dynamic models of early vision that incorporate time-lagged gain control [e.g. @Zhou2019].
 
 We did not observe clear differences in the timecourse between monocular and dichoptic suppression. This is important, because the dichoptic arrangement bypasses early stages of processing before the cortex (e.g. the retina and lateral geniculate nucleus). It suggests that the dynamic increases in suppression occur in the cortex, consistent with our MEG data that find evidence of reweighting in V1 (see Fig \@ref(fig:MEGdata)), and with previous neurophysiological work [@Aschner2018]. It is currently unclear whether these effects originate in V1, or might involve feedback from higher areas. The similarity between monocular and dichoptic effects also differs from work on adaptation to individual mask components. In both physiological [@Li2005; @Sengpiel2005] and psychophysical [@Baker2007] paradigms, adapting to a dichoptic mask reduces its potency, whereas adapting to a monocular mask has little or no effect. Normalization reweighting offers an explanation for why monocular masks presented in isolation do not adapt: if suppressive weights are determined by co-occurrence of stimuli, presentation of an isolated mask will have little effect. However this cannot explain the dichoptic adaptation effects without invoking additional binocular processes, such as competition between summing and differencing channels [e.g. @May2012].
 
-The relationship between normalization reweighting and other forms of visual plasticity is currently unclear. One phenomenon that might be closely related to our dichoptic effect is the change in interocular suppression that occurs when one eye is patched for a period of time [@Lunghi2011]. In the patching paradigm, the inputs to the two eyes are uncorrelated while one eye is patched, which the normalization reweighting model predicts should reduce suppression between the eyes. Most studies using patching have focussed on the resulting imbalance between the patched and non-patched eye, in which the patched eye contributes more to binocular single vision than the non-patched eye. In principle this could be due to increased suppression of the non-patched eye (inconsistent with normalization reweighting), or reduced suppression of the patched eye (consistent with normalization reweighting). It is difficult to distinguish these possibilities using paradigms that assess the balance between the two eyes, such as the binocular rivalry paradigm from the original @Lunghi2011 study. However subsequent work has shown that patching increases the patched eye's response [@Zhou2015], and reduces both dichoptic masking [@Baldwin2018] and levels of the inhibitory neurotransmitter GABA [@Lunghi2015]. All of these findings are consistent with a reweighting account.
+The relationship between normalization reweighting and other forms of visual plasticity and adaptation is currently unclear. One phenomenon that might be closely related to our dichoptic effect is the change in interocular suppression that occurs when one eye is patched for a period of time [@Lunghi2011]. In the patching paradigm, the inputs to the two eyes are uncorrelated while one eye is patched, which the normalization reweighting model predicts should reduce suppression between the eyes. Most studies using patching have focussed on the resulting imbalance between the patched and non-patched eye, in which the patched eye contributes more to binocular single vision than the non-patched eye. In principle this could be due to increased suppression of the non-patched eye (inconsistent with normalization reweighting), or reduced suppression of the patched eye (consistent with normalization reweighting). It is difficult to distinguish these possibilities using paradigms that assess the balance between the two eyes, such as the binocular rivalry paradigm from the original @Lunghi2011 study. However subsequent work has shown that patching increases the patched eye's response [@Zhou2015], and reduces both dichoptic masking [@Baldwin2018] and levels of the inhibitory neurotransmitter GABA [@Lunghi2015]. All of these findings are consistent with a reweighting account.
 
 Autism is composed of a set of heterogenous symptoms and characteristics, and normalization reweighting may have a more specific relationship to some aspects of autism, rather than autism per se. For this reason, we also examined relationships with the sensory perception quotient (SPQ) to examine whether sensory experiences specifically were related to normalization reweighting. SPQ scores showed significant negative correlation with AQ for the data sets from Experiments 2 and 3 (EEG data, *r* = `r round(corEEG$estimate,digits=2)`, *p* < `r ceiling(1000*corEEG$p.value)/1000`; MEG data, *r* = `r round(corMEG$estimate,digits=2)`, *p* = `r round(corMEG$p.value,digits=3)`) with effect sizes comparable to those reported previously [@Tavassoli2014]. We also conducted an exploratory analysis of the EEG data from Experiment 2, splitting participants by SPQ instead of AQ. However this analysis did not reveal any convincing differences in normalization reweighting either. Our preregistration also proposed to replicate our earlier finding of a reduced second harmonic response in participants with autism/high AQ scores. However the changes to the experimental design greatly reduced the second harmonic response in both experiments, such that it could not be observed reliably (see Figures \@ref(fig:EEGdata)b and \@ref(fig:MEGdata)b). We were therefore not confident in conducting this analysis. We suspect that the increase in spatial frequency from 0.5 c/deg in the @Vilidaite2018 study to 2 c/deg here is most likely responsible for the dramatically reduced second harmonic response.
 
